@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --sb-bg: #060a08;
+  --sb-bg-elevated: #0c1410;
+  --sb-card: #111a14;
+  --sb-card-border: #1e3328;
+  --sb-green: #00e676;
+  --sb-green-glow: #00e67640;
+  --sb-gold: #ffc107;
+  --sb-gold-glow: #ffc10740;
+  --sb-text: #e8f5e9;
+  --sb-muted: #7a9a82;
+  --sb-pick-bg: linear-gradient(135deg, #1a3d2e 0%, #0d2818 50%, #1a3320 100%);
+}
+
+@theme inline {
+  --color-sb-bg: var(--sb-bg);
+  --color-sb-card: var(--sb-card);
+  --color-sb-green: var(--sb-green);
+  --color-sb-gold: var(--sb-gold);
+  --color-sb-muted: var(--sb-muted);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-bebas);
+}
+
+body {
+  background: var(--sb-bg);
+  color: var(--sb-text);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+.sb-grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 230, 118, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 230, 118, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.sb-glow-green {
+  box-shadow: 0 0 24px var(--sb-green-glow), inset 0 1px 0 rgba(0, 230, 118, 0.2);
+}
+
+.sb-glow-gold {
+  box-shadow: 0 0 24px var(--sb-gold-glow), inset 0 1px 0 rgba(255, 193, 7, 0.2);
+}
+
+.sb-pick-box {
+  background: var(--sb-pick-bg);
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  box-shadow:
+    0 0 32px rgba(0, 230, 118, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.sb-best-bets-box {
+  background: linear-gradient(160deg, #1a2a14 0%, #0f1a12 40%, #1f2d10 100%);
+  border: 2px solid var(--sb-gold);
+  box-shadow:
+    0 0 40px rgba(255, 193, 7, 0.2),
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 193, 7, 0.25);
+}
