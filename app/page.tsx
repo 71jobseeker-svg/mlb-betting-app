@@ -7,13 +7,18 @@ import { getTodaysGamesWithAnalysis } from "@/lib/games";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const { date, games } = await getTodaysGamesWithAnalysis();
+  const { date, games, totals } = await getTodaysGamesWithAnalysis();
   const bestBets = selectBestBets(games);
   const bestBetRanks = new Map(bestBets.map((b) => [b.gamePk, b.rank]));
 
   return (
     <div className="sb-grid-bg min-h-full bg-[#060a08]">
-      <Header date={date} gameCount={games.length} />
+      <Header
+        date={date}
+        gameCount={games.length}
+        bestBetsRecord={totals.bestBets}
+        aiPicksRecord={totals.aiPicks}
+      />
 
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
         {games.length === 0 ? (

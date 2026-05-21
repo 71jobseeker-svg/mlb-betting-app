@@ -11,7 +11,7 @@ export type OddsApiEvent = {
     title: string;
     markets?: Array<{
       key: string;
-      outcomes?: Array<{ name: string; price: number }>;
+      outcomes?: Array<{ name: string; price: number; point?: number }>;
     }>;
   }>;
 };
@@ -33,7 +33,7 @@ export async function fetchMlbMoneylineOdds(): Promise<OddsApiEvent[]> {
   const url = new URL(`${ODDS_API_BASE}/sports/baseball_mlb/odds`);
   url.searchParams.set("apiKey", apiKey);
   url.searchParams.set("regions", "us");
-  url.searchParams.set("markets", "h2h");
+  url.searchParams.set("markets", "h2h,totals");
   url.searchParams.set("oddsFormat", "american");
 
   const res = await fetch(url.toString(), { cache: "no-store" });
@@ -76,6 +76,27 @@ export function extractMoneyline(
     awayMoneyline: awayOutcome?.price ?? null,
     homeMoneyline: homeOutcome?.price ?? null,
     bookmaker: bookmaker?.title ?? null,
+  };
+}
+
+export type TotalLine = {
+  point: number | null;
+  overPrice: number | null;
+  underPrice: number | null;
+};
+
+export function extractTotalLine(event: OddsApiEvent): TotalLine {
+  const bookmaker = event.bookmakers?.[0];
+  const market = bookmaker?.markets?.find((m) => m.key === "totals");
+  const outcomes = market?.outcomes ?? [];
+
+  const over = outcomes.find((o) => o.name === "Over");
+  const under = outcomes.find((o) => o.name === "Under");
+
+  return {
+    point: over?.point ?? under?.point ?? null,
+    overPrice: over?.price ?? null,
+    underPrice: under?.price ?? null,
   };
 }
 

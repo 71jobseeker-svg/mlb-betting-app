@@ -1,3 +1,4 @@
+import { ResultPill } from "@/components/RecordTracker";
 import { formatAmericanOdds } from "@/lib/odds";
 import type { BestBet } from "@/lib/best-bets";
 
@@ -16,7 +17,7 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
           </h2>
         </div>
         <p className="max-w-xs text-right text-xs text-[#a8c4ae]">
-          Ranked by implied probability value, line competitiveness & AI alignment
+          Top AI moneyline picks ranked by statistical edge
         </p>
       </div>
 
@@ -29,9 +30,12 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
             <span className="absolute right-3 top-3 font-display text-5xl leading-none text-[#ffc107]/20">
               #{bet.rank}
             </span>
-            <span className="inline-block rounded-full bg-[#ffc107] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0a120e]">
-              #{bet.rank} Pick
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-block rounded-full bg-[#ffc107] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0a120e]">
+                #{bet.rank} Pick
+              </span>
+              {bet.aiResult ? <ResultPill result={bet.aiResult} /> : null}
+            </div>
             <p className="mt-3 font-display text-xl leading-tight text-white">
               {bet.away}
             </p>
@@ -39,11 +43,19 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
               @
             </p>
             <p className="font-display text-xl leading-tight text-white">{bet.home}</p>
+            {(bet.awayScore !== null || bet.homeScore !== null) && (
+              <p className="mt-2 font-display text-xl text-white/80">
+                {bet.awayScore ?? "—"} – {bet.homeScore ?? "—"}
+                {bet.totalPoint !== null ? (
+                  <span className="ml-2 text-sm text-[#ffc107]">O/U {bet.totalPoint}</span>
+                ) : null}
+              </p>
+            )}
             <p className="mt-4 font-display text-3xl text-[#00e676]">
               {bet.pickTeam}
             </p>
             <p className="font-display text-2xl text-[#ffc107]">
-              {formatAmericanOdds(bet.pickOdds)}
+              ML {formatAmericanOdds(bet.pickOdds)}
             </p>
             <p className="mt-3 text-xs leading-relaxed text-[#a8c4ae]">{bet.statReason}</p>
           </li>

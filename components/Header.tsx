@@ -1,4 +1,17 @@
-export function Header({ date, gameCount }: { date: string; gameCount: number }) {
+import { RecordTracker } from "@/components/RecordTracker";
+import type { RecordTotals } from "@/lib/records";
+
+export function Header({
+  date,
+  gameCount,
+  bestBetsRecord,
+  aiPicksRecord,
+}: {
+  date: string;
+  gameCount: number;
+  bestBetsRecord: RecordTotals;
+  aiPicksRecord: RecordTotals;
+}) {
   return (
     <header className="relative overflow-hidden border-b border-[#1e3328] bg-[#0a120e]/90 backdrop-blur-md">
       <div
@@ -27,6 +40,7 @@ export function Header({ date, gameCount }: { date: string; gameCount: number })
           </p>
         </div>
       </div>
+      <RecordTracker bestBets={bestBetsRecord} aiPicks={aiPicksRecord} />
     </header>
   );
 }
