@@ -27,26 +27,34 @@ export type FavoriteSide = "away" | "home" | "pick";
 export async function fetchMlbMoneylineOdds(): Promise<OddsApiEvent[]> {
   const apiKey = process.env.ODDS_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("ODDS_API_KEY is not set in .env.local");
+    console.error("ODDS_API_KEY is not configured");
+    return [];
   }
 
-  const url = new URL(`${ODDS_API_BASE}/sports/baseball_mlb/odds`);
-  url.searchParams.set("apiKey", apiKey);
-  url.searchParams.set("regions", "us");
-  url.searchParams.set("markets", "h2h,totals");
-  url.searchParams.set("oddsFormat", "american");
+  try {
+    const url = new URL(`${ODDS_API_BASE}/sports/baseball_mlb/odds`);
+    url.searchParams.set("apiKey", apiKey);
+    url.searchParams.set("regions", "us");
+    url.searchParams.set("markets", "h2h,totals");
+    url.searchParams.set("oddsFormat", "american");
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Odds API failed: ${res.status} ${res.statusText}`);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) {
+      console.error(`Odds API failed: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = (await res.json()) as OddsApiEvent[] | { message?: string };
+    if (!Array.isArray(data)) {
+      console.error("Unexpected odds API response:", data);
+      return [];
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Odds API request error:", error);
+    return [];
   }
-
-  const data = (await res.json()) as OddsApiEvent[] | { message?: string };
-  if (!Array.isArray(data)) {
-    throw new Error(data.message ?? "Unexpected odds API response");
-  }
-
-  return data;
 }
 
 export function findOddsForMatchup(

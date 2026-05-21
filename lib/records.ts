@@ -1,3 +1,4 @@
+import "server-only";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import path from "path";
 import type { EnrichedGame } from "@/lib/games";
@@ -43,9 +44,6 @@ export type BettingRecords = {
   };
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const RECORDS_PATH = path.join(DATA_DIR, "betting-records.json");
-
 const EMPTY_RECORDS: BettingRecords = {
   pending: {},
   settled: {},
@@ -55,24 +53,57 @@ const EMPTY_RECORDS: BettingRecords = {
   },
 };
 
+/** In-memory fallback when the filesystem is read-only (e.g. Vercel serverless). */
+let memoryCache: BettingRecords | null = null;
+
+function getRecordsPath(): string {
+  if (process.env.VERCEL) {
+    return path.join("/tmp", "betting-records.json");
+  }
+  return path.join(process.cwd(), "data", "betting-records.json");
+}
+
+function cloneRecords(records: BettingRecords): BettingRecords {
+  return JSON.parse(JSON.stringify(records)) as BettingRecords;
+}
+
 export function loadRecords(): BettingRecords {
+  if (memoryCache) return cloneRecords(memoryCache);
+
   try {
-    if (!existsSync(RECORDS_PATH)) return { ...EMPTY_RECORDS };
-    const raw = readFileSync(RECORDS_PATH, "utf8");
+    const recordsPath = getRecordsPath();
+    if (!existsSync(recordsPath)) {
+      memoryCache = { ...EMPTY_RECORDS };
+      return cloneRecords(memoryCache);
+    }
+    const raw = readFileSync(recordsPath, "utf8");
     const parsed = JSON.parse(raw) as BettingRecords;
-    return {
+    memoryCache = {
       pending: parsed.pending ?? {},
       settled: parsed.settled ?? {},
       totals: parsed.totals ?? EMPTY_RECORDS.totals,
     };
-  } catch {
-    return { ...EMPTY_RECORDS };
+    return cloneRecords(memoryCache);
+  } catch (error) {
+    console.error("Failed to load betting records:", error);
+    memoryCache = { ...EMPTY_RECORDS };
+    return cloneRecords(memoryCache);
   }
 }
 
 function saveRecords(records: BettingRecords): void {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(RECORDS_PATH, JSON.stringify(records, null, 2), "utf8");
+  memoryCache = cloneRecords(records);
+
+  try {
+    const recordsPath = getRecordsPath();
+    const dataDir = path.dirname(recordsPath);
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+    writeFileSync(recordsPath, JSON.stringify(records, null, 2), "utf8");
+  } catch (error) {
+    console.error("Failed to persist betting records (using in-memory only):", error);
+  }
 }
 
 function recalculateTotals(records: BettingRecords): void {

@@ -5,6 +5,7 @@ import { selectBestBets } from "@/lib/best-bets";
 import { getTodaysGamesWithAnalysis } from "@/lib/games";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export default async function Home() {
   const { date, games, totals } = await getTodaysGamesWithAnalysis();

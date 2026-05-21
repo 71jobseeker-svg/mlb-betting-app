@@ -1,3 +1,5 @@
+import "server-only";
+
 import { generateBettingRecommendations } from "@/lib/analysis";
 import { selectBestBets, getBestBetGamePks } from "@/lib/best-bets";
 import {
@@ -56,43 +58,47 @@ async function settlePendingFromRecentDays(
   bestBetGamePks: Set<number>,
   today: string
 ): Promise<void> {
-  const records = loadRecords();
-  const pendingKeys = Object.keys(records.pending);
-  if (pendingKeys.length === 0) return;
+  try {
+    const records = loadRecords();
+    const pendingKeys = Object.keys(records.pending);
+    if (pendingKeys.length === 0) return;
 
-  const startDate = dateDaysAgo(7);
-  const dateSlates = (await fetchMlbScheduleRange(startDate, today)) ?? [];
+    const startDate = dateDaysAgo(7);
+    const dateSlates = await fetchMlbScheduleRange(startDate, today);
 
-  const toSettle = [];
+    const toSettle = [];
 
-  for (const day of dateSlates) {
-    for (const game of day.games ?? []) {
-      const key = String(game.gamePk);
-      if (!records.pending[key] && !records.settled[key]) continue;
+    for (const day of dateSlates) {
+      for (const game of day.games ?? []) {
+        const key = String(game.gamePk);
+        if (!records.pending[key] && !records.settled[key]) continue;
 
-      const { isFinal, awayWon } = extractGameResult(game);
-      if (!isFinal || awayWon === null) continue;
+        const { isFinal, awayWon } = extractGameResult(game);
+        if (!isFinal || awayWon === null) continue;
 
-      const { awayScore, homeScore } = extractGameScores(game);
-      const pending = records.pending[key];
+        const { awayScore, homeScore } = extractGameScores(game);
+        const pending = records.pending[key];
 
-      toSettle.push({
-        gamePk: game.gamePk,
-        date: day.date,
-        away: game.teams?.away?.team?.name ?? "Away",
-        home: game.teams?.home?.team?.name ?? "Home",
-        awayScore: awayScore ?? 0,
-        homeScore: homeScore ?? 0,
-        isFinal: true,
-        awayWon,
-        pickTeam: pending?.pickTeam ?? "",
-        pickSide: pending?.pickSide ?? "home",
-        wasBestBet: pending?.wasBestBet ?? bestBetGamePks.has(game.gamePk),
-      });
+        toSettle.push({
+          gamePk: game.gamePk,
+          date: day.date,
+          away: game.teams?.away?.team?.name ?? "Away",
+          home: game.teams?.home?.team?.name ?? "Home",
+          awayScore: awayScore ?? 0,
+          homeScore: homeScore ?? 0,
+          isFinal: true,
+          awayWon,
+          pickTeam: pending?.pickTeam ?? "",
+          pickSide: pending?.pickSide ?? "home",
+          wasBestBet: pending?.wasBestBet ?? bestBetGamePks.has(game.gamePk),
+        });
+      }
     }
-  }
 
-  if (toSettle.length > 0) settleRecentFinalGames(toSettle);
+    if (toSettle.length > 0) settleRecentFinalGames(toSettle);
+  } catch (error) {
+    console.error("Failed to settle pending records:", error);
+  }
 }
 
 export async function getTodaysGamesWithAnalysis(): Promise<{
@@ -106,10 +112,20 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
 }> {
   const date = new Date().toISOString().slice(0, 10);
 
-  const [schedule, oddsEvents] = await Promise.all([
-    fetchMlbSchedule(date),
-    fetchMlbMoneylineOdds(),
-  ]);
+  let schedule;
+  try {
+    schedule = await fetchMlbSchedule(date);
+  } catch (error) {
+    console.error("MLB schedule fetch failed:", error);
+    return {
+      date,
+      games: [],
+      records: loadRecords(),
+      totals: loadRecords().totals,
+    };
+  }
+
+  const oddsEvents = await fetchMlbMoneylineOdds();
 
   const rawGames = schedule.dates?.[0]?.games ?? [];
 
