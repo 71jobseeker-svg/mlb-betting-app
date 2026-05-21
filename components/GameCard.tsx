@@ -36,7 +36,16 @@ export function GameCard({
         </span>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 pr-28">
+      <div className="mt-4 flex items-center justify-center gap-3 rounded-xl border-2 border-[#00e676]/50 bg-[#00e676]/10 px-6 py-4 sb-glow-green">
+        <span className="text-xs font-bold uppercase tracking-[0.25em] text-[#7a9a82]">
+          Start Time
+        </span>
+        <span className="font-display text-4xl tracking-wide text-[#00e676] sm:text-5xl">
+          {game.startTime}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 pr-28">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md bg-[#1e3328] px-2.5 py-1 text-xs font-semibold uppercase tracking-wider text-[#7a9a82]">
             {game.status}
@@ -105,11 +114,28 @@ export function GameCard({
       <div className="sb-pick-box mt-8 rounded-xl p-5">
         <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#00e676]">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#00e676]" />
-          AI Pick — {game.pickTeam} {formatAmericanOdds(game.pickOdds)}
+          AI ML Pick — {game.pickTeam} {formatAmericanOdds(game.pickOdds)}
         </p>
         <p className="text-base font-medium leading-relaxed text-white sm:text-lg">
           {game.recommendation}
         </p>
+        {game.totalsPick && game.totalsRecommendation ? (
+          <div className="mt-4 border-t border-[#ffc107]/20 pt-4">
+            <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#ffc107]">
+              AI O/U Pick — {game.totalsPick === "over" ? "Over" : "Under"}{" "}
+              {game.totalPoint}{" "}
+              {formatAmericanOdds(
+                game.totalsPick === "over" ? game.overPrice : game.underPrice
+              )}
+              <span className="ml-1 rounded bg-[#ffc107]/20 px-1.5 py-0.5 text-[10px] text-[#ffc107]">
+                {game.totalsStatEdge}/10 edge
+              </span>
+            </p>
+            <p className="text-sm leading-relaxed text-[#a8c4ae]">
+              {game.totalsRecommendation}
+            </p>
+          </div>
+        ) : null}
       </div>
     </li>
   );

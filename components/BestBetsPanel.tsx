@@ -17,14 +17,14 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
           </h2>
         </div>
         <p className="max-w-xs text-right text-xs text-[#a8c4ae]">
-          Top AI moneyline picks ranked by statistical edge
+          Top AI moneyline & O/U plays (7+ statistical edge) ranked by profile
         </p>
       </div>
 
       <ol className="grid gap-4 sm:grid-cols-3">
         {bestBets.map((bet) => (
           <li
-            key={bet.gamePk}
+            key={`${bet.gamePk}-${bet.betType}`}
             className="relative overflow-hidden rounded-xl border border-[#ffc107]/30 bg-[#0a120e]/80 p-5"
           >
             <span className="absolute right-3 top-3 font-display text-5xl leading-none text-[#ffc107]/20">
@@ -32,11 +32,17 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-block rounded-full bg-[#ffc107] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0a120e]">
-                #{bet.rank} Pick
+                #{bet.rank}{" "}
+                {bet.betType === "total" ? "O/U" : "ML"}
               </span>
-              {bet.aiResult ? <ResultPill result={bet.aiResult} /> : null}
+              {bet.aiResult && bet.betType === "moneyline" ? (
+                <ResultPill result={bet.aiResult} />
+              ) : null}
             </div>
-            <p className="mt-3 font-display text-xl leading-tight text-white">
+            <p className="mt-2 font-display text-2xl text-[#00e676]">
+              {bet.startTime}
+            </p>
+            <p className="mt-2 font-display text-xl leading-tight text-white">
               {bet.away}
             </p>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9a82]">
@@ -46,17 +52,24 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
             {(bet.awayScore !== null || bet.homeScore !== null) && (
               <p className="mt-2 font-display text-xl text-white/80">
                 {bet.awayScore ?? "—"} – {bet.homeScore ?? "—"}
-                {bet.totalPoint !== null ? (
-                  <span className="ml-2 text-sm text-[#ffc107]">O/U {bet.totalPoint}</span>
-                ) : null}
               </p>
             )}
-            <p className="mt-4 font-display text-3xl text-[#00e676]">
-              {bet.pickTeam}
+            <p
+              className={`mt-4 font-display text-3xl ${
+                bet.betType === "total" ? "text-[#ffc107]" : "text-[#00e676]"
+              }`}
+            >
+              {bet.betLabel}
             </p>
-            <p className="font-display text-2xl text-[#ffc107]">
-              ML {formatAmericanOdds(bet.pickOdds)}
+            <p className="font-display text-2xl text-white/90">
+              {bet.betType === "total" ? "" : "ML "}
+              {formatAmericanOdds(bet.betOdds)}
             </p>
+            {bet.betType === "total" && bet.totalsStatEdge >= 7 ? (
+              <p className="mt-1 text-xs font-bold uppercase tracking-wider text-[#ffc107]">
+                {bet.totalsStatEdge}/10 statistical edge
+              </p>
+            ) : null}
             <p className="mt-3 text-xs leading-relaxed text-[#a8c4ae]">{bet.statReason}</p>
           </li>
         ))}

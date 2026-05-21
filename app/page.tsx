@@ -10,7 +10,13 @@ export const maxDuration = 60;
 export default async function Home() {
   const { date, games, totals } = await getTodaysGamesWithAnalysis();
   const bestBets = selectBestBets(games);
-  const bestBetRanks = new Map(bestBets.map((b) => [b.gamePk, b.rank]));
+  const bestBetRanks = new Map<number, number>();
+  for (const bet of bestBets) {
+    const existing = bestBetRanks.get(bet.gamePk);
+    if (!existing || bet.rank < existing) {
+      bestBetRanks.set(bet.gamePk, bet.rank);
+    }
+  }
 
   return (
     <div className="sb-grid-bg min-h-full bg-[#060a08]">

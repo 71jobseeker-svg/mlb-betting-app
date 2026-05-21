@@ -24,6 +24,15 @@ export type MlbScheduleResponse = {
   }>;
 };
 
+/** ISO datetime from MLB schedule (e.g. "2026-05-21T23:10:00Z"). */
+export function extractGameDateTime(
+  game: NonNullable<NonNullable<MlbScheduleResponse["dates"]>[0]["games"]>[0]
+): string | null {
+  const raw = game.gameDate;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return null;
+}
+
 export function extractGameScores(game: NonNullable<
   NonNullable<MlbScheduleResponse["dates"]>[0]["games"]
 >[0]): { awayScore: number | null; homeScore: number | null } {

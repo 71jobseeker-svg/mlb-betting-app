@@ -3,6 +3,7 @@ import "server-only";
 import { generateBettingRecommendations } from "@/lib/analysis";
 import { selectBestBets, getBestBetGamePks } from "@/lib/best-bets";
 import {
+  extractGameDateTime,
   extractGameResult,
   extractGameScores,
   fetchMlbSchedule,
@@ -24,12 +25,15 @@ import {
   fetchMlbMoneylineOdds,
   findOddsForMatchup,
 } from "@/lib/odds";
+import { formatStartTimeET } from "@/lib/time";
 
 export type EnrichedGame = {
   gamePk: number;
   away: string;
   home: string;
   status: string;
+  startTime: string;
+  gameDateIso: string | null;
   isFinal: boolean;
   awayWon: boolean | null;
   awayScore: number | null;
@@ -41,6 +45,9 @@ export type EnrichedGame = {
   underPrice: number | null;
   bookmaker: string | null;
   recommendation: string;
+  totalsRecommendation: string | null;
+  totalsPick: "over" | "under" | null;
+  totalsStatEdge: number;
   pickTeam: string;
   pickSide: "away" | "home";
   pickOdds: number | null;
@@ -132,6 +139,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
   const gamesForAnalysis = rawGames.map((game) => {
     const away = game.teams?.away?.team?.name ?? "Away";
     const home = game.teams?.home?.team?.name ?? "Home";
+    const gameDateIso = extractGameDateTime(game);
+    const startTime = formatStartTimeET(gameDateIso);
     const { awayScore, homeScore } = extractGameScores(game);
     const { isFinal, awayWon } = extractGameResult(game);
     const oddsEvent = findOddsForMatchup(oddsEvents, away, home);
@@ -147,6 +156,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       away,
       home,
       status: game.status?.detailedState ?? "Unknown",
+      startTime,
+      gameDateIso,
       isFinal,
       awayWon,
       awayScore,
@@ -166,21 +177,40 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       away: g.away,
       home: g.home,
       status: g.status,
+      startTime: g.startTime,
       awayMoneyline: g.awayMoneyline,
       homeMoneyline: g.homeMoneyline,
+      totalPoint: g.totalPoint,
+      overPrice: g.overPrice,
+      underPrice: g.underPrice,
     }))
   );
 
   let games: EnrichedGame[] = gamesForAnalysis.map((game) => {
-    const recommendation =
-      recommendations.get(game.gamePk) ?? "No recommendation available.";
-    const pick = parseAiPick({ ...game, recommendation });
+    const analysis =
+      recommendations.get(game.gamePk) ??
+      ({
+        moneylineRecommendation: "No recommendation available.",
+        totalsPick: null,
+        totalsRecommendation: null,
+        totalsStatEdge: 0,
+      } as const);
+
+    const pick = parseAiPick({
+      away: game.away,
+      home: game.home,
+      awayMoneyline: game.awayMoneyline,
+      homeMoneyline: game.homeMoneyline,
+      recommendation: analysis.moneylineRecommendation,
+    });
 
     return {
       gamePk: game.gamePk,
       away: game.away,
       home: game.home,
       status: game.status,
+      startTime: game.startTime,
+      gameDateIso: game.gameDateIso,
       isFinal: game.isFinal,
       awayWon: game.awayWon,
       awayScore: game.awayScore,
@@ -191,7 +221,10 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       overPrice: game.overPrice,
       underPrice: game.underPrice,
       bookmaker: game.bookmaker,
-      recommendation,
+      recommendation: analysis.moneylineRecommendation,
+      totalsRecommendation: analysis.totalsRecommendation,
+      totalsPick: analysis.totalsPick,
+      totalsStatEdge: analysis.totalsStatEdge,
       pickTeam: pick.pickTeam,
       pickSide: pick.pickSide,
       pickOdds: pick.pickOdds,
