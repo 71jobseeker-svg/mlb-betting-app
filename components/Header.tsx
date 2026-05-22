@@ -1,5 +1,5 @@
 import { RecordTracker } from "@/components/RecordTracker";
-import type { RecordTotals } from "@/lib/records";
+import type { RecordTotals } from "@/lib/persistence/types";
 
 export function Header({
   date,

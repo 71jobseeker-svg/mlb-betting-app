@@ -1,24 +1,18 @@
 import "server-only";
 
 import { generateBettingRecommendations } from "@/lib/analysis";
-import { selectBestBets, getBestBetGamePks } from "@/lib/best-bets";
+import { selectBestBets, type BestBet } from "@/lib/best-bets";
+import { hydrateSlate } from "@/lib/hydrate-slate";
+import type { RecordTotals } from "@/lib/persistence/types";
+import { getTodayInPacific } from "@/lib/date";
 import {
   extractGameDateTime,
   extractGameResult,
   extractGameScores,
   fetchMlbSchedule,
-  fetchMlbScheduleRange,
 } from "@/lib/mlb";
 import { parseAiPick } from "@/lib/picks";
-import {
-  getResultForGame,
-  loadRecords,
-  settleRecentFinalGames,
-  syncRecords,
-  type BettingRecords,
-  type PickResult,
-  type RecordTotals,
-} from "@/lib/records";
+import type { PickResult } from "@/lib/persistence/types";
 import {
   extractMoneyline,
   extractTotalLine,
@@ -26,6 +20,8 @@ import {
   findOddsForMatchup,
 } from "@/lib/odds";
 import { formatStartTimeET } from "@/lib/time";
+
+export type { PickResult };
 
 export type EnrichedGame = {
   gamePk: number;
@@ -55,69 +51,16 @@ export type EnrichedGame = {
   bestBetResult: PickResult | null;
 };
 
-function dateDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
-async function settlePendingFromRecentDays(
-  bestBetGamePks: Set<number>,
-  today: string
-): Promise<void> {
-  try {
-    const records = loadRecords();
-    const pendingKeys = Object.keys(records.pending);
-    if (pendingKeys.length === 0) return;
-
-    const startDate = dateDaysAgo(7);
-    const dateSlates = await fetchMlbScheduleRange(startDate, today);
-
-    const toSettle = [];
-
-    for (const day of dateSlates) {
-      for (const game of day.games ?? []) {
-        const key = String(game.gamePk);
-        if (!records.pending[key] && !records.settled[key]) continue;
-
-        const { isFinal, awayWon } = extractGameResult(game);
-        if (!isFinal || awayWon === null) continue;
-
-        const { awayScore, homeScore } = extractGameScores(game);
-        const pending = records.pending[key];
-
-        toSettle.push({
-          gamePk: game.gamePk,
-          date: day.date,
-          away: game.teams?.away?.team?.name ?? "Away",
-          home: game.teams?.home?.team?.name ?? "Home",
-          awayScore: awayScore ?? 0,
-          homeScore: homeScore ?? 0,
-          isFinal: true,
-          awayWon,
-          pickTeam: pending?.pickTeam ?? "",
-          pickSide: pending?.pickSide ?? "home",
-          wasBestBet: pending?.wasBestBet ?? bestBetGamePks.has(game.gamePk),
-        });
-      }
-    }
-
-    if (toSettle.length > 0) settleRecentFinalGames(toSettle);
-  } catch (error) {
-    console.error("Failed to settle pending records:", error);
-  }
-}
-
 export async function getTodaysGamesWithAnalysis(): Promise<{
   date: string;
   games: EnrichedGame[];
-  records: BettingRecords;
+  bestBets: BestBet[];
   totals: {
     bestBets: RecordTotals;
     aiPicks: RecordTotals;
   };
 }> {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = getTodayInPacific();
 
   let schedule;
   try {
@@ -127,8 +70,11 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     return {
       date,
       games: [],
-      records: loadRecords(),
-      totals: loadRecords().totals,
+      bestBets: [],
+      totals: {
+        bestBets: { wins: 0, losses: 0 },
+        aiPicks: { wins: 0, losses: 0 },
+      },
     };
   }
 
@@ -186,7 +132,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     }))
   );
 
-  let games: EnrichedGame[] = gamesForAnalysis.map((game) => {
+  const games: EnrichedGame[] = gamesForAnalysis.map((game) => {
     const analysis =
       recommendations.get(game.gamePk) ??
       ({
@@ -233,22 +179,13 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     };
   });
 
-  const bestBets = selectBestBets(games);
-  const bestBetGamePks = getBestBetGamePks(bestBets);
-
-  await settlePendingFromRecentDays(bestBetGamePks, date);
-
-  const records = syncRecords(games, bestBetGamePks, date);
-
-  games = games.map((game) => {
-    const { aiResult, bestBetResult } = getResultForGame(records, game.gamePk);
-    return { ...game, aiResult, bestBetResult };
-  });
+  const suggestedBestBets = selectBestBets(games);
+  const hydrated = await hydrateSlate(date, games, suggestedBestBets);
 
   return {
     date,
-    games,
-    records,
-    totals: records.totals,
+    games: hydrated.games,
+    bestBets: hydrated.bestBets,
+    totals: hydrated.totals,
   };
 }

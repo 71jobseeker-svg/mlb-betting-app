@@ -1,6 +1,6 @@
-const MLB_TZ = "America/New_York";
+import { SLATE_TIMEZONE } from "@/lib/date";
 
-/** Format MLB gameDate ISO string as "7:05 PM ET". */
+/** Format MLB gameDate ISO string as "7:05 PM PT". */
 export function formatStartTimeET(isoDate: string | null | undefined): string {
   if (!isoDate?.trim()) return "TBD";
 
@@ -8,7 +8,7 @@ export function formatStartTimeET(isoDate: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return "TBD";
 
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: MLB_TZ,
+    timeZone: SLATE_TIMEZONE,
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -22,5 +22,5 @@ export function formatStartTimeET(isoDate: string | null | undefined): string {
 
   if (!hour || !dayPeriod) return "TBD";
 
-  return `${hour}:${minute} ${dayPeriod} ET`;
+  return `${hour}:${minute} ${dayPeriod} PT`;
 }

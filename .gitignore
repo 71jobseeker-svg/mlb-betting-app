@@ -20,8 +20,8 @@
 # production
 /build
 
-# local betting record persistence
-/data/betting-records.json
+# local dev persistence fallback (production uses Redis/KV)
+/data/
 
 # misc
 .DS_Store

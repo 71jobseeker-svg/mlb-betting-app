@@ -1,4 +1,4 @@
-import type { RecordTotals } from "@/lib/records";
+import type { RecordTotals } from "@/lib/persistence/types";
 
 function RecordBadge({
   label,
