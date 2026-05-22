@@ -2,7 +2,18 @@ export const STORAGE_KEYS = {
   records: "diamondedge-records-v1",
   scores: "diamondedge-scores-v1",
   bestBetsPrefix: "diamondedge-best-bets-v1-",
+  meta: "diamondedge-meta-v1",
+  /** Legacy / alternate keys that may still exist in KV */
+  legacyRecords: "betting-records",
+  legacyRecordsJson: "betting-records.json",
 } as const;
+
+/** Redis SCAN patterns for force-reset */
+export const REDIS_WIPE_PATTERNS = [
+  "diamondedge*",
+  "betting-records*",
+  "betting-scores*",
+] as const;
 
 export function bestBetsKey(slateDate: string): string {
   return `${STORAGE_KEYS.bestBetsPrefix}${slateDate}`;

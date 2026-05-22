@@ -4,6 +4,10 @@ import type { BestBet } from "@/lib/best-bets";
 import { getBestBetGamePks } from "@/lib/best-bets";
 import type { EnrichedGame } from "@/lib/games";
 import {
+  isRecordsPaused,
+  ZERO_TOTALS,
+} from "@/lib/persistence/reset";
+import {
   computeHistoricalTotals,
   getResultsForGame,
   settlePendingFromScores,
@@ -15,6 +19,7 @@ import {
 } from "@/lib/persistence/scores-logic";
 import {
   loadLockedBestBets,
+  loadMeta,
   loadRecordsStore,
   loadScoresStore,
   saveLockedBestBets,
@@ -61,11 +66,29 @@ export async function hydrateSlate(
   bestBets: BestBet[];
   totals: { bestBets: RecordTotals; aiPicks: RecordTotals };
 }> {
-  let recordsStore = await loadRecordsStore();
-  let scoresStore = await loadScoresStore();
+  const meta = await loadMeta();
+  const paused = isRecordsPaused(slateDate, meta);
 
+  let scoresStore = await loadScoresStore();
   let merged = mergeScoresIntoGames(games, slateDate, scoresStore);
   merged = inferAwayWon(merged);
+
+  if (paused) {
+    const bestBets = suggestedBestBets;
+    const gamesWithoutResults = merged.map((g) => ({
+      ...g,
+      aiResult: null,
+      bestBetResult: null,
+    }));
+
+    return {
+      games: gamesWithoutResults,
+      bestBets,
+      totals: ZERO_TOTALS,
+    };
+  }
+
+  let recordsStore = await loadRecordsStore();
 
   scoresStore = persistFinalScores(merged, slateDate, scoresStore);
   await saveScoresStore(scoresStore);

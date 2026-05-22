@@ -6,7 +6,11 @@ import { getRedis, isRedisConfigured } from "@/lib/persistence/redis-client";
 import { readJsonFile, writeJsonFile } from "@/lib/persistence/file-store";
 import { emptyRecordsStore } from "@/lib/persistence/records-logic";
 import { emptyScoresStore } from "@/lib/persistence/scores-logic";
-import type { RecordsStore, ScoresStore } from "@/lib/persistence/types";
+import type {
+  AppMeta,
+  RecordsStore,
+  ScoresStore,
+} from "@/lib/persistence/types";
 
 const RECORDS_FILE = "betting-records.json";
 const SCORES_FILE = "betting-scores.json";
@@ -115,4 +119,19 @@ export async function saveLockedBestBets(
   }
 
   await writeJsonFile(bestBetsFileName(slateDate), bets);
+}
+
+export async function loadMeta(): Promise<AppMeta | null> {
+  if (isRedisConfigured()) {
+    return redisGet<AppMeta | null>(STORAGE_KEYS.meta, null);
+  }
+  return readJsonFile<AppMeta | null>("meta.json", null);
+}
+
+export async function saveMeta(meta: AppMeta): Promise<void> {
+  if (isRedisConfigured()) {
+    await redisSet(STORAGE_KEYS.meta, meta);
+    return;
+  }
+  await writeJsonFile("meta.json", meta);
 }
