@@ -38,16 +38,23 @@ function loadEnvFile(name) {
     ) {
       value = value.slice(1, -1);
     }
-    if (!process.env[key]) process.env[key] = value;
+    if (value && !process.env[key]) process.env[key] = value;
   }
 }
 
-loadEnvFile(".env.local");
-loadEnvFile(".env");
+function env(name) {
+  const v = process.env[name]?.trim();
+  return v || undefined;
+}
 
-const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-const token =
-  process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+// Only load files when not already injected (e.g. via `vercel env run`)
+if (!env("KV_REST_API_URL") || !env("KV_REST_API_TOKEN")) {
+  loadEnvFile(".env.local");
+  loadEnvFile(".env");
+}
+
+const url = env("KV_REST_API_URL") ?? env("UPSTASH_REDIS_REST_URL");
+const token = env("KV_REST_API_TOKEN") ?? env("UPSTASH_REDIS_REST_TOKEN");
 
 if (!url || !token) {
   console.error(
