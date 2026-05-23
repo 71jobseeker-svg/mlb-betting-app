@@ -5,6 +5,7 @@ import {
   canSelectAndLockBestBets,
   isLockedBestBetsValid,
 } from "@/lib/best-bets-ready";
+import { isAfter8amPacific } from "@/lib/date";
 import type { EnrichedGame } from "@/lib/games";
 import type { LockedGamePick, LockedPicksDayStore } from "@/lib/persistence/types";
 import { recordKey } from "@/lib/persistence/keys";
@@ -56,7 +57,7 @@ function mergeLockedIntoGame(
 
 /**
  * Apply persisted locks: never overwrite an existing pick for today.
- * New games get locked on first sight with lockedAt.
+ * New picks lock only after 8:00 AM PT (same gate as Best Bets).
  */
 export async function applyLockedPicks(
   slateDate: string,
@@ -64,6 +65,7 @@ export async function applyLockedPicks(
 ): Promise<EnrichedGame[]> {
   const store = await loadLockedPicks(slateDate);
   const picks = store.picks ?? {};
+  const canLockNew = isAfter8amPacific();
   let dirty = false;
   const lockedAt = new Date().toISOString();
 
@@ -73,6 +75,10 @@ export async function applyLockedPicks(
 
     if (existing) {
       return mergeLockedIntoGame(game, existing);
+    }
+
+    if (!canLockNew) {
+      return game;
     }
 
     picks[key] = gameToLockedPick(game, slateDate, lockedAt);

@@ -59,11 +59,13 @@ async function handleReset(request: NextRequest) {
 
     return htmlPage(
       `<h1>✓ Force reset complete</h1>
-       <p>All DiamondEdge keys were wiped. Records are <strong>0–0</strong> until the next Pacific slate day.</p>
+       <p>All DiamondEdge keys were wiped. Records are <strong>0–0</strong> until tracking resumes.</p>
        <ul>
          <li>Redis connected: ${result.redisConfigured ? "yes" : "no — check KV env vars"}</li>
          <li>Keys deleted: ${result.keysDeleted.length}</li>
-         <li>Record tracking resumes on: <strong>${result.recordsPausedUntil}</strong> (PT)</li>
+         <li>Slate date: <strong>${result.recordsPausedUntil}</strong> (PT)</li>
+         <li>${result.recordsResumeNote}</li>
+         <li>AI picks &amp; Best Bets lock after 8:00 AM PT when odds are posted.</li>
        </ul>
        <pre>${JSON.stringify(result, null, 2)}</pre>
        <p><a href="/">← Back to app</a></p>

@@ -87,8 +87,12 @@ export type SavedScore = {
 
 export type ScoresStore = Record<string, SavedScore>;
 
-/** When set, W-L sync is paused until this PT slate date (YYYY-MM-DD). */
+/**
+ * After force-reset: recordsPausedUntil is today's PT slate date;
+ * pauseRecordSyncBefore8am blocks W-L sync until 8:00 AM PT that day.
+ */
 export type AppMeta = {
   recordsPausedUntil: string;
   clearedAt: string;
+  pauseRecordSyncBefore8am?: boolean;
 };

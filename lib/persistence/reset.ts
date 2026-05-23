@@ -1,6 +1,6 @@
 import "server-only";
 
-import { addDaysToDateString, getTodayInPacific } from "@/lib/date";
+import { getTodayInPacific, isAfter8amPacific } from "@/lib/date";
 import {
   REDIS_WIPE_PATTERNS,
   STORAGE_KEYS,
@@ -9,7 +9,6 @@ import { getRedis, isRedisConfigured } from "@/lib/persistence/redis-client";
 import { emptyRecordsStore } from "@/lib/persistence/records-logic";
 import { emptyScoresStore } from "@/lib/persistence/scores-logic";
 import {
-  loadMeta,
   saveMeta,
   saveRecordsStore,
   saveScoresStore,
@@ -31,15 +30,15 @@ async function deleteKeysByPattern(
   return keys;
 }
 
-/** Wipe every app key in Redis/KV and pause record sync until tomorrow (PT). */
+/** Wipe KV and pause record sync until 8:00 AM PT today (then resume same day). */
 export async function forceResetAllData(): Promise<{
   redisConfigured: boolean;
   keysDeleted: string[];
   recordsPausedUntil: string;
+  recordsResumeNote: string;
   totals: typeof ZERO_TOTALS;
 }> {
   const today = getTodayInPacific();
-  const recordsPausedUntil = addDaysToDateString(today, 1);
 
   const keysDeleted: string[] = [];
   const redis = getRedis();
@@ -50,7 +49,6 @@ export async function forceResetAllData(): Promise<{
       keysDeleted.push(...removed);
     }
 
-    // Explicit legacy keys (SCAN may miss exact names without wildcard file suffix)
     const legacy = [
       STORAGE_KEYS.legacyRecords,
       STORAGE_KEYS.legacyRecordsJson,
@@ -63,18 +61,24 @@ export async function forceResetAllData(): Promise<{
   }
 
   const meta: AppMeta = {
-    recordsPausedUntil,
+    recordsPausedUntil: today,
     clearedAt: new Date().toISOString(),
+    pauseRecordSyncBefore8am: true,
   };
 
   await saveRecordsStore(emptyRecordsStore());
   await saveScoresStore(emptyScoresStore());
   await saveMeta(meta);
 
+  const recordsResumeNote = isAfter8amPacific()
+    ? "Record tracking resumes immediately (after 8:00 AM PT)."
+    : `Record tracking resumes at 8:00 AM PT on ${today}.`;
+
   return {
     redisConfigured: isRedisConfigured(),
     keysDeleted: [...new Set(keysDeleted)],
-    recordsPausedUntil,
+    recordsPausedUntil: today,
+    recordsResumeNote,
     totals: ZERO_TOTALS,
   };
 }
@@ -84,7 +88,20 @@ export function isRecordsPaused(
   meta: AppMeta | null
 ): boolean {
   if (!meta?.recordsPausedUntil) return false;
-  return slateDate < meta.recordsPausedUntil;
+
+  // Legacy resets used "tomorrow" — treat as paused for any earlier slate day
+  if (slateDate < meta.recordsPausedUntil) return true;
+
+  // Same-day reset: hold 0–0 until 8:00 AM PT, then track today's slate
+  if (
+    meta.pauseRecordSyncBefore8am &&
+    slateDate === meta.recordsPausedUntil &&
+    !isAfter8amPacific()
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export { ZERO_TOTALS };
