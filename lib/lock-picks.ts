@@ -2,12 +2,12 @@ import "server-only";
 
 import type { BestBet } from "@/lib/best-bets";
 import {
-  canSelectAndLockBestBets,
+  canGenerateAndLockPicks,
   isLockedBestBetsValid,
-} from "@/lib/best-bets-ready";
-import { isAfter8amPacific } from "@/lib/date";
+  isValidLockedGamePick,
+} from "@/lib/slate-picks-ready";
 import type { EnrichedGame } from "@/lib/games";
-import type { LockedGamePick, LockedPicksDayStore } from "@/lib/persistence/types";
+import type { LockedGamePick } from "@/lib/persistence/types";
 import { recordKey } from "@/lib/persistence/keys";
 import {
   loadLockedBestBets,
@@ -44,6 +44,7 @@ function mergeLockedIntoGame(
 ): EnrichedGame {
   return {
     ...game,
+    picksAvailable: true,
     pickTeam: lock.pickTeam,
     pickSide: lock.pickSide,
     pickOdds: lock.pickOdds,
@@ -56,16 +57,17 @@ function mergeLockedIntoGame(
 }
 
 /**
- * Apply persisted locks: never overwrite an existing pick for today.
- * New picks lock only after 8:00 AM PT (same gate as Best Bets).
+ * Apply persisted locks: never overwrite an existing valid pick for today.
+ * New picks lock only after 8:00 AM PT with full slate odds.
  */
 export async function applyLockedPicks(
   slateDate: string,
-  freshGames: EnrichedGame[]
+  freshGames: EnrichedGame[],
+  picksReady: boolean
 ): Promise<EnrichedGame[]> {
   const store = await loadLockedPicks(slateDate);
   const picks = store.picks ?? {};
-  const canLockNew = isAfter8amPacific();
+  const canLockNew = picksReady && canGenerateAndLockPicks(freshGames);
   let dirty = false;
   const lockedAt = new Date().toISOString();
 
@@ -73,7 +75,7 @@ export async function applyLockedPicks(
     const key = recordKey(game.gamePk);
     const existing = picks[key];
 
-    if (existing) {
+    if (existing && isValidLockedGamePick(existing)) {
       return mergeLockedIntoGame(game, existing);
     }
 
@@ -83,7 +85,7 @@ export async function applyLockedPicks(
 
     picks[key] = gameToLockedPick(game, slateDate, lockedAt);
     dirty = true;
-    return game;
+    return { ...game, picksAvailable: true };
   });
 
   if (dirty) {
@@ -108,7 +110,7 @@ export async function applyLockedBestBets(
     return existing;
   }
 
-  if (!canSelectAndLockBestBets(games) || suggested.length === 0) {
+  if (!canGenerateAndLockPicks(games) || suggested.length === 0) {
     return [];
   }
 

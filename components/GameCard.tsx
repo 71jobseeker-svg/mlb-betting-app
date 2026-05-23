@@ -117,30 +117,38 @@ export function GameCard({
       </div>
 
       <div className="sb-pick-box mt-8 rounded-xl p-5">
-        <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#00e676]">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#00e676]" />
-          AI ML Pick — {game.pickTeam} {formatAmericanOdds(game.pickOdds)}
-        </p>
-        <p className="text-base font-medium leading-relaxed text-white sm:text-lg">
-          {game.recommendation}
-        </p>
-        {game.totalsPick && game.totalsRecommendation ? (
-          <div className="mt-4 border-t border-[#ffc107]/20 pt-4">
-            <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#ffc107]">
-              AI O/U Pick — {game.totalsPick === "over" ? "Over" : "Under"}{" "}
-              {game.totalPoint}{" "}
-              {formatAmericanOdds(
-                game.totalsPick === "over" ? game.overPrice : game.underPrice
-              )}
-              <span className="ml-1 rounded bg-[#ffc107]/20 px-1.5 py-0.5 text-[10px] text-[#ffc107]">
-                {game.totalsStatEdge}/10 edge
-              </span>
+        {!game.picksAvailable ? (
+          <p className="text-center text-sm leading-relaxed text-[#a8c4ae] sm:text-base">
+            {game.recommendation}
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#00e676]">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#00e676]" />
+              AI ML Pick — {game.pickTeam} {formatAmericanOdds(game.pickOdds)}
             </p>
-            <p className="text-sm leading-relaxed text-[#a8c4ae]">
-              {game.totalsRecommendation}
+            <p className="text-base font-medium leading-relaxed text-white sm:text-lg">
+              {game.recommendation}
             </p>
-          </div>
-        ) : null}
+            {game.totalsPick && game.totalsRecommendation ? (
+              <div className="mt-4 border-t border-[#ffc107]/20 pt-4">
+                <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#ffc107]">
+                  AI O/U Pick — {game.totalsPick === "over" ? "Over" : "Under"}{" "}
+                  {game.totalPoint}{" "}
+                  {formatAmericanOdds(
+                    game.totalsPick === "over" ? game.overPrice : game.underPrice
+                  )}
+                  <span className="ml-1 rounded bg-[#ffc107]/20 px-1.5 py-0.5 text-[10px] text-[#ffc107]">
+                    {game.totalsStatEdge}/10 edge
+                  </span>
+                </p>
+                <p className="text-sm leading-relaxed text-[#a8c4ae]">
+                  {game.totalsRecommendation}
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </li>
   );

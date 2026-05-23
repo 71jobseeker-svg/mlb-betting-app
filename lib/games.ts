@@ -2,12 +2,6 @@ import "server-only";
 
 import { generateBettingRecommendations } from "@/lib/analysis";
 import { selectBestBets, type BestBet } from "@/lib/best-bets";
-import {
-  bestBetsPendingMessage,
-  canSelectAndLockBestBets,
-  resolveBestBetsStatus,
-  type BestBetsStatus,
-} from "@/lib/best-bets-ready";
 import { hydrateSlate } from "@/lib/hydrate-slate";
 import { applyLockedBestBets, applyLockedPicks } from "@/lib/lock-picks";
 import type { RecordTotals } from "@/lib/persistence/types";
@@ -27,6 +21,13 @@ import {
   fetchMlbMoneylineOdds,
   findOddsForMatchup,
 } from "@/lib/odds";
+import {
+  canGenerateAndLockPicks,
+  resolveBestBetsStatus,
+  resolveSlatePicksStatus,
+  slatePicksPendingMessage,
+  type SlatePicksStatus,
+} from "@/lib/slate-picks-ready";
 import { formatStartTimeET } from "@/lib/time";
 
 export type { PickResult };
@@ -36,7 +37,6 @@ export type EnrichedGame = {
   away: string;
   home: string;
   status: string;
-  /** In-progress only, e.g. "Top 3rd" */
   liveInning: string | null;
   startTime: string;
   gameDateIso: string | null;
@@ -50,6 +50,8 @@ export type EnrichedGame = {
   overPrice: number | null;
   underPrice: number | null;
   bookmaker: string | null;
+  /** False until 8am PT + full slate odds (then locked picks show). */
+  picksAvailable: boolean;
   recommendation: string;
   totalsRecommendation: string | null;
   totalsPick: "over" | "under" | null;
@@ -62,18 +64,57 @@ export type EnrichedGame = {
   bestBetResult: PickResult | null;
 };
 
+type GameShell = Omit<
+  EnrichedGame,
+  | "picksAvailable"
+  | "recommendation"
+  | "totalsRecommendation"
+  | "totalsPick"
+  | "totalsStatEdge"
+  | "moneylineStatEdge"
+  | "pickTeam"
+  | "pickSide"
+  | "pickOdds"
+  | "aiResult"
+  | "bestBetResult"
+>;
+
+function buildPendingGame(
+  shell: GameShell,
+  pendingMessage: string
+): EnrichedGame {
+  return {
+    ...shell,
+    picksAvailable: false,
+    recommendation: pendingMessage,
+    totalsRecommendation: null,
+    totalsPick: null,
+    totalsStatEdge: 0,
+    moneylineStatEdge: 0,
+    pickTeam: shell.away,
+    pickSide: "away",
+    pickOdds: null,
+    aiResult: null,
+    bestBetResult: null,
+  };
+}
+
 export async function getTodaysGamesWithAnalysis(): Promise<{
   date: string;
   games: EnrichedGame[];
   bestBets: BestBet[];
-  bestBetsStatus: BestBetsStatus;
-  bestBetsMessage: string | null;
+  picksStatus: SlatePicksStatus;
+  picksMessage: string | null;
   totals: {
     bestBets: RecordTotals;
     aiPicks: RecordTotals;
   };
 }> {
   const date = getTodayInPacific();
+  const emptyTotals = {
+    bestBets: { wins: 0, losses: 0 },
+    aiPicks: { wins: 0, losses: 0 },
+  };
 
   let schedule;
   try {
@@ -84,20 +125,16 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       date,
       games: [],
       bestBets: [],
-      bestBetsStatus: { type: "pending", reason: "awaiting-odds" },
-      bestBetsMessage: null,
-      totals: {
-        bestBets: { wins: 0, losses: 0 },
-        aiPicks: { wins: 0, losses: 0 },
-      },
+      picksStatus: { type: "pending", reason: "awaiting-odds" },
+      picksMessage: null,
+      totals: emptyTotals,
     };
   }
 
   const oddsEvents = await fetchMlbMoneylineOdds();
-
   const rawGames = schedule.dates?.[0]?.games ?? [];
 
-  const gamesForAnalysis = rawGames.map((game) => {
+  const shells: GameShell[] = rawGames.map((game) => {
     const away = game.teams?.away?.team?.name ?? "Away";
     const home = game.teams?.home?.team?.name ?? "Home";
     const gameDateIso = extractGameDateTime(game);
@@ -133,86 +170,80 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     };
   });
 
-  const recommendations = await generateBettingRecommendations(
-    gamesForAnalysis.map((g) => ({
-      gamePk: g.gamePk,
-      away: g.away,
-      home: g.home,
-      status: g.status,
-      startTime: g.startTime,
-      awayMoneyline: g.awayMoneyline,
-      homeMoneyline: g.homeMoneyline,
-      totalPoint: g.totalPoint,
-      overPrice: g.overPrice,
-      underPrice: g.underPrice,
-    }))
+  const picksReady = canGenerateAndLockPicks(shells);
+  const picksMessage = slatePicksPendingMessage(
+    resolveSlatePicksStatus(shells, false)
   );
 
-  const freshGames: EnrichedGame[] = gamesForAnalysis.map((game) => {
-    const analysis =
-      recommendations.get(game.gamePk) ??
-      ({
-        moneylineRecommendation: "No recommendation available.",
-        moneylineStatEdge: 0,
-        totalsPick: null,
-        totalsRecommendation: null,
-        totalsStatEdge: 0,
-      } as const);
+  let freshGames: EnrichedGame[];
 
-    const pick = parseAiPick({
-      away: game.away,
-      home: game.home,
-      awayMoneyline: game.awayMoneyline,
-      homeMoneyline: game.homeMoneyline,
-      recommendation: analysis.moneylineRecommendation,
+  if (!picksReady) {
+    freshGames = shells.map((shell) =>
+      buildPendingGame(shell, picksMessage ?? "Picks not yet available.")
+    );
+  } else {
+    const recommendations = await generateBettingRecommendations(
+      shells.map((g) => ({
+        gamePk: g.gamePk,
+        away: g.away,
+        home: g.home,
+        status: g.status,
+        startTime: g.startTime,
+        awayMoneyline: g.awayMoneyline,
+        homeMoneyline: g.homeMoneyline,
+        totalPoint: g.totalPoint,
+        overPrice: g.overPrice,
+        underPrice: g.underPrice,
+      }))
+    );
+
+    freshGames = shells.map((shell) => {
+      const analysis =
+        recommendations.get(shell.gamePk) ??
+        ({
+          moneylineRecommendation: "No recommendation available.",
+          moneylineStatEdge: 0,
+          totalsPick: null,
+          totalsRecommendation: null,
+          totalsStatEdge: 0,
+        } as const);
+
+      const pick = parseAiPick({
+        away: shell.away,
+        home: shell.home,
+        awayMoneyline: shell.awayMoneyline,
+        homeMoneyline: shell.homeMoneyline,
+        recommendation: analysis.moneylineRecommendation,
+      });
+
+      return {
+        ...shell,
+        picksAvailable: false,
+        recommendation: analysis.moneylineRecommendation,
+        totalsRecommendation: analysis.totalsRecommendation,
+        totalsPick: analysis.totalsPick,
+        totalsStatEdge: analysis.totalsStatEdge,
+        moneylineStatEdge: analysis.moneylineStatEdge,
+        pickTeam: pick.pickTeam,
+        pickSide: pick.pickSide,
+        pickOdds: pick.pickOdds,
+        aiResult: null,
+        bestBetResult: null,
+      };
     });
+  }
 
-    return {
-      gamePk: game.gamePk,
-      away: game.away,
-      home: game.home,
-      status: game.status,
-      liveInning: game.liveInning,
-      startTime: game.startTime,
-      gameDateIso: game.gameDateIso,
-      isFinal: game.isFinal,
-      awayWon: game.awayWon,
-      awayScore: game.awayScore,
-      homeScore: game.homeScore,
-      awayMoneyline: game.awayMoneyline,
-      homeMoneyline: game.homeMoneyline,
-      totalPoint: game.totalPoint,
-      overPrice: game.overPrice,
-      underPrice: game.underPrice,
-      bookmaker: game.bookmaker,
-      recommendation: analysis.moneylineRecommendation,
-      totalsRecommendation: analysis.totalsRecommendation,
-      totalsPick: analysis.totalsPick,
-      totalsStatEdge: analysis.totalsStatEdge,
-      moneylineStatEdge: analysis.moneylineStatEdge,
-      pickTeam: pick.pickTeam,
-      pickSide: pick.pickSide,
-      pickOdds: pick.pickOdds,
-      aiResult: null,
-      bestBetResult: null,
-    };
-  });
+  const games = await applyLockedPicks(date, freshGames, picksReady);
 
-  // Lock picks on first generation — never overwrite later in the day
-  const games = await applyLockedPicks(date, freshGames);
-
-  const suggestedBestBets = canSelectAndLockBestBets(games)
-    ? selectBestBets(games)
-    : [];
-
+  const suggestedBestBets = picksReady ? selectBestBets(games) : [];
   const lockedBestBets = await applyLockedBestBets(
     date,
     suggestedBestBets,
     games
   );
 
-  const bestBetsStatus = resolveBestBetsStatus(games, lockedBestBets);
-  const bestBetsMessage = bestBetsPendingMessage(bestBetsStatus);
+  const resolvedPicksStatus = resolveBestBetsStatus(games, lockedBestBets);
+  const resolvedMessage = slatePicksPendingMessage(resolvedPicksStatus);
 
   const hydrated = await hydrateSlate(date, games, lockedBestBets);
 
@@ -220,8 +251,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     date,
     games: hydrated.games,
     bestBets: hydrated.bestBets,
-    bestBetsStatus,
-    bestBetsMessage,
+    picksStatus: resolvedPicksStatus,
+    picksMessage: resolvedMessage,
     totals: hydrated.totals,
   };
 }
