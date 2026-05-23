@@ -9,6 +9,7 @@ import { getRedis, isRedisConfigured } from "@/lib/persistence/redis-client";
 import { emptyRecordsStore } from "@/lib/persistence/records-logic";
 import { emptyScoresStore } from "@/lib/persistence/scores-logic";
 import {
+  loadMeta,
   saveMeta,
   saveRecordsStore,
   saveScoresStore,
@@ -89,10 +90,15 @@ export function isRecordsPaused(
 ): boolean {
   if (!meta?.recordsPausedUntil) return false;
 
-  // Legacy resets used "tomorrow" — treat as paused for any earlier slate day
-  if (slateDate < meta.recordsPausedUntil) return true;
+  // Legacy force-reset used tomorrow — never block today's slate for that
+  if (slateDate < meta.recordsPausedUntil) {
+    const today = getTodayInPacific();
+    if (slateDate >= today) {
+      return false;
+    }
+    return true;
+  }
 
-  // Same-day reset: hold 0–0 until 8:00 AM PT, then track today's slate
   if (
     meta.pauseRecordSyncBefore8am &&
     slateDate === meta.recordsPausedUntil &&
@@ -102,6 +108,19 @@ export function isRecordsPaused(
   }
 
   return false;
+}
+
+/** After picks post at 8am, allow W-L tracking for the rest of the day. */
+export async function clearRecordsPauseAfter8am(): Promise<void> {
+  if (!isAfter8amPacific()) return;
+
+  const meta = await loadMeta();
+  if (!meta?.pauseRecordSyncBefore8am) return;
+
+  await saveMeta({
+    ...meta,
+    pauseRecordSyncBefore8am: false,
+  });
 }
 
 export { ZERO_TOTALS };

@@ -20,7 +20,10 @@ import {
   extractTotalLine,
   fetchMlbMoneylineOdds,
   findOddsForMatchup,
+  type OddsApiEvent,
 } from "@/lib/odds";
+import { clearRecordsPauseAfter8am } from "@/lib/persistence/reset";
+import { logSlateGateDiagnostics, logSlatePipeline } from "@/lib/slate-diagnostics";
 import {
   canGenerateAndLockPicks,
   resolveBestBetsStatus,
@@ -50,7 +53,6 @@ export type EnrichedGame = {
   overPrice: number | null;
   underPrice: number | null;
   bookmaker: string | null;
-  /** False until 8am PT + full slate odds (then locked picks show). */
   picksAvailable: boolean;
   recommendation: string;
   totalsRecommendation: string | null;
@@ -116,22 +118,35 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     aiPicks: { wins: 0, losses: 0 },
   };
 
+  logSlatePipeline("start", { slateDate: date });
+
   let schedule;
   try {
     schedule = await fetchMlbSchedule(date);
+    logSlatePipeline("mlb-schedule-ok", {
+      games: schedule.dates?.[0]?.games?.length ?? 0,
+    });
   } catch (error) {
-    console.error("MLB schedule fetch failed:", error);
+    console.error("[DiamondEdge] MLB schedule fetch failed:", error);
     return {
       date,
       games: [],
       bestBets: [],
       picksStatus: { type: "pending", reason: "awaiting-odds" },
-      picksMessage: null,
+      picksMessage: "Could not load today's MLB schedule.",
       totals: emptyTotals,
     };
   }
 
-  const oddsEvents = await fetchMlbMoneylineOdds();
+  let oddsEvents: OddsApiEvent[] = [];
+  try {
+    oddsEvents = await fetchMlbMoneylineOdds();
+    logSlatePipeline("odds-api-ok", { events: oddsEvents.length });
+  } catch (error) {
+    console.error("[DiamondEdge] Odds API fetch failed:", error);
+    oddsEvents = [];
+  }
+
   const rawGames = schedule.dates?.[0]?.games ?? [];
 
   const shells: GameShell[] = rawGames.map((game) => {
@@ -170,10 +185,15 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     };
   });
 
+  await logSlateGateDiagnostics(date, shells);
+
   const picksReady = canGenerateAndLockPicks(shells);
   const picksMessage = slatePicksPendingMessage(
-    resolveSlatePicksStatus(shells, false)
+    resolveSlatePicksStatus(shells, false),
+    shells
   );
+
+  logSlatePipeline("picks-gate", { picksReady, picksMessage });
 
   let freshGames: EnrichedGame[];
 
@@ -182,58 +202,72 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       buildPendingGame(shell, picksMessage ?? "Picks not yet available.")
     );
   } else {
-    const recommendations = await generateBettingRecommendations(
-      shells.map((g) => ({
-        gamePk: g.gamePk,
-        away: g.away,
-        home: g.home,
-        status: g.status,
-        startTime: g.startTime,
-        awayMoneyline: g.awayMoneyline,
-        homeMoneyline: g.homeMoneyline,
-        totalPoint: g.totalPoint,
-        overPrice: g.overPrice,
-        underPrice: g.underPrice,
-      }))
-    );
+    try {
+      logSlatePipeline("anthropic-start", { games: shells.length });
+      const recommendations = await generateBettingRecommendations(
+        shells.map((g) => ({
+          gamePk: g.gamePk,
+          away: g.away,
+          home: g.home,
+          status: g.status,
+          startTime: g.startTime,
+          awayMoneyline: g.awayMoneyline,
+          homeMoneyline: g.homeMoneyline,
+          totalPoint: g.totalPoint,
+          overPrice: g.overPrice,
+          underPrice: g.underPrice,
+        }))
+      );
+      logSlatePipeline("anthropic-ok", { count: recommendations.size });
 
-    freshGames = shells.map((shell) => {
-      const analysis =
-        recommendations.get(shell.gamePk) ??
-        ({
-          moneylineRecommendation: "No recommendation available.",
-          moneylineStatEdge: 0,
-          totalsPick: null,
-          totalsRecommendation: null,
-          totalsStatEdge: 0,
-        } as const);
+      freshGames = shells.map((shell) => {
+        const analysis =
+          recommendations.get(shell.gamePk) ??
+          ({
+            moneylineRecommendation: "No recommendation available.",
+            moneylineStatEdge: 0,
+            totalsPick: null,
+            totalsRecommendation: null,
+            totalsStatEdge: 0,
+          } as const);
 
-      const pick = parseAiPick({
-        away: shell.away,
-        home: shell.home,
-        awayMoneyline: shell.awayMoneyline,
-        homeMoneyline: shell.homeMoneyline,
-        recommendation: analysis.moneylineRecommendation,
+        const pick = parseAiPick({
+          away: shell.away,
+          home: shell.home,
+          awayMoneyline: shell.awayMoneyline,
+          homeMoneyline: shell.homeMoneyline,
+          recommendation: analysis.moneylineRecommendation,
+        });
+
+        return {
+          ...shell,
+          picksAvailable: false,
+          recommendation: analysis.moneylineRecommendation,
+          totalsRecommendation: analysis.totalsRecommendation,
+          totalsPick: analysis.totalsPick,
+          totalsStatEdge: analysis.totalsStatEdge,
+          moneylineStatEdge: analysis.moneylineStatEdge,
+          pickTeam: pick.pickTeam,
+          pickSide: pick.pickSide,
+          pickOdds: pick.pickOdds,
+          aiResult: null,
+          bestBetResult: null,
+        };
       });
-
-      return {
-        ...shell,
-        picksAvailable: false,
-        recommendation: analysis.moneylineRecommendation,
-        totalsRecommendation: analysis.totalsRecommendation,
-        totalsPick: analysis.totalsPick,
-        totalsStatEdge: analysis.totalsStatEdge,
-        moneylineStatEdge: analysis.moneylineStatEdge,
-        pickTeam: pick.pickTeam,
-        pickSide: pick.pickSide,
-        pickOdds: pick.pickOdds,
-        aiResult: null,
-        bestBetResult: null,
-      };
-    });
+    } catch (error) {
+      console.error("[DiamondEdge] Anthropic analysis failed:", error);
+      freshGames = shells.map((shell) =>
+        buildPendingGame(
+          shell,
+          "AI analysis failed. Refresh in a minute or check server logs."
+        )
+      );
+    }
   }
 
   const games = await applyLockedPicks(date, freshGames, picksReady);
+  const lockedPickCount = games.filter((g) => g.picksAvailable).length;
+  logSlatePipeline("picks-locked", { lockedPickCount, total: games.length });
 
   const suggestedBestBets = picksReady ? selectBestBets(games) : [];
   const lockedBestBets = await applyLockedBestBets(
@@ -241,11 +275,22 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     suggestedBestBets,
     games
   );
+  logSlatePipeline("best-bets-locked", { count: lockedBestBets.length });
+
+  if (picksReady && lockedPickCount > 0) {
+    await clearRecordsPauseAfter8am();
+  }
 
   const resolvedPicksStatus = resolveBestBetsStatus(games, lockedBestBets);
-  const resolvedMessage = slatePicksPendingMessage(resolvedPicksStatus);
+  const resolvedMessage = slatePicksPendingMessage(resolvedPicksStatus, games);
 
   const hydrated = await hydrateSlate(date, games, lockedBestBets);
+
+  logSlatePipeline("done", {
+    picksStatus: resolvedPicksStatus,
+    bestBets: hydrated.bestBets.length,
+    totals: hydrated.totals,
+  });
 
   return {
     date,

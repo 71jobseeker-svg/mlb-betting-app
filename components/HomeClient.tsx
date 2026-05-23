@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { BestBetsPanel } from "@/components/BestBetsPanel";
 import { GameCard } from "@/components/GameCard";
 import { Header } from "@/components/Header";
@@ -26,6 +27,17 @@ export function HomeClient({
   picksMessage,
   totals,
 }: HomeClientProps) {
+  const router = useRouter();
+
+  /** Picks only generate on the server when the page loads — poll until 8am PT + odds. */
+  useEffect(() => {
+    if (!picksMessage) return;
+    const id = window.setInterval(() => {
+      router.refresh();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [picksMessage, router]);
+
   const bestBetRanks = useMemo(() => {
     const map = new Map<number, number>();
     for (const bet of bestBets) {

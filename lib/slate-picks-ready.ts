@@ -1,6 +1,10 @@
 import type { BestBet } from "@/lib/best-bets";
 import type { EnrichedGame } from "@/lib/games";
-import { getPacificTimeParts, isAfter8amPacific } from "@/lib/date";
+import {
+  formatPacificTime,
+  getPacificTimeParts,
+  isAfter8amPacific,
+} from "@/lib/date";
 import type { LockedGamePick } from "@/lib/persistence/types";
 
 export type SlatePicksStatus =
@@ -10,18 +14,64 @@ export type SlatePicksStatus =
 type GameWithOdds = {
   awayMoneyline: number | null;
   homeMoneyline: number | null;
+  isFinal?: boolean;
+  status?: string;
 };
 
-export function hasFullSlateMoneylineOdds(
-  games: GameWithOdds[]
-): boolean {
-  if (games.length === 0) return false;
-  return games.every(
-    (g) => g.awayMoneyline !== null && g.homeMoneyline !== null
-  );
+export function isPickableGame(game: {
+  isFinal?: boolean;
+  status?: string;
+}): boolean {
+  if (game.isFinal) return false;
+  const s = (game.status ?? "").toLowerCase();
+  if (s.includes("cancel")) return false;
+  if (s.includes("postponed")) return false;
+  return true;
 }
 
-/** 8:00 AM PT + moneyline odds posted for every game on the slate. */
+/** Odds required only for games still on today's pickable slate (not finals). */
+export function hasFullSlateMoneylineOdds(games: GameWithOdds[]): boolean {
+  const pickable = games.filter(isPickableGame);
+  if (pickable.length === 0) return false;
+
+  const withOdds = pickable.filter(
+    (g) => g.awayMoneyline !== null && g.homeMoneyline !== null
+  );
+
+  return withOdds.length === pickable.length;
+}
+
+export function countOddsCoverage(
+  games: Array<
+    GameWithOdds & {
+      away?: string;
+      home?: string;
+    }
+  >
+): {
+  pickable: number;
+  withOdds: number;
+  missing: Array<{ away: string; home: string }>;
+} {
+  const pickable = games.filter(isPickableGame);
+  const missing: Array<{ away: string; home: string }> = [];
+
+  let withOdds = 0;
+  for (const g of pickable) {
+    if (g.awayMoneyline !== null && g.homeMoneyline !== null) {
+      withOdds++;
+    } else {
+      missing.push({
+        away: g.away ?? "?",
+        home: g.home ?? "?",
+      });
+    }
+  }
+
+  return { pickable: pickable.length, withOdds, missing };
+}
+
+/** 8:00 AM PT + moneyline odds for every pickable game. */
 export function canGenerateAndLockPicks(games: GameWithOdds[]): boolean {
   return isAfter8amPacific() && hasFullSlateMoneylineOdds(games);
 }
@@ -30,7 +80,7 @@ export function resolveSlatePicksStatus(
   games: GameWithOdds[],
   hasValidLocks: boolean
 ): SlatePicksStatus {
-  if (hasValidLocks && canGenerateAndLockPicks(games)) {
+  if (hasValidLocks) {
     return { type: "ready" };
   }
   if (!isAfter8amPacific()) {
@@ -43,23 +93,26 @@ export function resolveSlatePicksStatus(
 }
 
 export function slatePicksPendingMessage(
-  status: SlatePicksStatus
+  status: SlatePicksStatus,
+  games?: GameWithOdds[]
 ): string | null {
   if (status.type !== "pending") return null;
   if (status.reason === "before-8am") {
-    return "AI moneyline picks, totals picks, and Best Bets unlock at 8:00 AM PT once moneyline odds are posted for the full slate.";
+    const { hour, minute } = getPacificTimeParts();
+    return `AI picks and Best Bets unlock at 8:00 AM PT (now ${formatPacificTime()}). Current PT time: ${hour}:${String(minute).padStart(2, "0")}.`;
   }
-  return "Waiting for moneyline odds on all games before publishing picks and Best Bets.";
+  if (games) {
+    const { pickable, withOdds, missing } = countOddsCoverage(
+      games as Array<GameWithOdds & { away: string; home: string }>
+    );
+    const sample = missing
+      .slice(0, 3)
+      .map((m) => `${m.away} @ ${m.home}`)
+      .join(", ");
+    return `Waiting for moneyline odds on all pickable games (${withOdds}/${pickable} have lines${sample ? `; missing: ${sample}` : ""}).`;
+  }
+  return "Waiting for moneyline odds on all pickable games before publishing picks and Best Bets.";
 }
-
-/** @deprecated Use slatePicksPendingMessage */
-export function bestBetsPendingMessage(
-  status: SlatePicksStatus
-): string | null {
-  return slatePicksPendingMessage(status);
-}
-
-export type BestBetsStatus = SlatePicksStatus;
 
 export function isValidLockedGamePick(lock: LockedGamePick): boolean {
   if (!lock.lockedAt) return false;
@@ -73,7 +126,6 @@ export function isValidLockedGamePick(lock: LockedGamePick): boolean {
   return lock.pickOdds !== null;
 }
 
-/** Reject early/invalid locks (blank odds, before 8am PT). */
 export function isLockedBestBetsValid(bets: BestBet[]): boolean {
   if (!bets.length) return false;
 
