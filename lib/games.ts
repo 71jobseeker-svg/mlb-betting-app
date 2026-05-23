@@ -3,6 +3,7 @@ import "server-only";
 import { generateBettingRecommendations } from "@/lib/analysis";
 import { selectBestBets, type BestBet } from "@/lib/best-bets";
 import { hydrateSlate } from "@/lib/hydrate-slate";
+import { applyLockedBestBets, applyLockedPicks } from "@/lib/lock-picks";
 import type { RecordTotals } from "@/lib/persistence/types";
 import { getTodayInPacific } from "@/lib/date";
 import {
@@ -132,7 +133,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     }))
   );
 
-  const games: EnrichedGame[] = gamesForAnalysis.map((game) => {
+  const freshGames: EnrichedGame[] = gamesForAnalysis.map((game) => {
     const analysis =
       recommendations.get(game.gamePk) ??
       ({
@@ -179,8 +180,13 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     };
   });
 
+  // Lock picks on first generation — never overwrite later in the day
+  const games = await applyLockedPicks(date, freshGames);
+
   const suggestedBestBets = selectBestBets(games);
-  const hydrated = await hydrateSlate(date, games, suggestedBestBets);
+  const lockedBestBets = await applyLockedBestBets(date, suggestedBestBets);
+
+  const hydrated = await hydrateSlate(date, games, lockedBestBets);
 
   return {
     date,

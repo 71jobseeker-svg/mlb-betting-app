@@ -2,6 +2,7 @@ export const STORAGE_KEYS = {
   records: "diamondedge-records-v1",
   scores: "diamondedge-scores-v1",
   bestBetsPrefix: "diamondedge-best-bets-v1-",
+  lockedPicksPrefix: "diamondedge-locked-picks-v1-",
   meta: "diamondedge-meta-v1",
   /** Legacy / alternate keys that may still exist in KV */
   legacyRecords: "betting-records",
@@ -25,4 +26,12 @@ export function scoreKey(slateDate: string, gamePk: number): string {
 
 export function recordKey(gamePk: number): string {
   return String(gamePk);
+}
+
+export function lockedPicksKey(slateDate: string): string {
+  return `${STORAGE_KEYS.lockedPicksPrefix}${slateDate}`;
+}
+
+export function bestBetRecordKey(gamePk: number, betType: string): string {
+  return `${gamePk}:${betType}`;
 }

@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { BestBet } from "@/lib/best-bets";
-import { getBestBetGamePks } from "@/lib/best-bets";
 import type { EnrichedGame } from "@/lib/games";
 import {
   isRecordsPaused,
@@ -9,6 +8,7 @@ import {
 } from "@/lib/persistence/reset";
 import {
   computeHistoricalTotals,
+  getBestBetResult,
   getResultsForGame,
   settlePendingFromScores,
   syncDayRecords,
@@ -18,11 +18,10 @@ import {
   persistFinalScores,
 } from "@/lib/persistence/scores-logic";
 import {
-  loadLockedBestBets,
+  loadLockedPicks,
   loadMeta,
   loadRecordsStore,
   loadScoresStore,
-  saveLockedBestBets,
   saveRecordsStore,
   saveScoresStore,
 } from "@/lib/persistence/store";
@@ -57,10 +56,24 @@ function applyRecordResults(
   });
 }
 
+function applyBestBetResults(
+  bestBets: BestBet[],
+  slateDate: string,
+  store: RecordsStore
+): BestBet[] {
+  return bestBets.map((bet) => ({
+    ...bet,
+    bestBetResult:
+      getBestBetResult(store, slateDate, bet.gamePk, bet.betType) ??
+      bet.bestBetResult ??
+      null,
+  }));
+}
+
 export async function hydrateSlate(
   slateDate: string,
   games: EnrichedGame[],
-  suggestedBestBets: BestBet[]
+  lockedBestBets: BestBet[]
 ): Promise<{
   games: EnrichedGame[];
   bestBets: BestBet[];
@@ -74,7 +87,6 @@ export async function hydrateSlate(
   merged = inferAwayWon(merged);
 
   if (paused) {
-    const bestBets = suggestedBestBets;
     const gamesWithoutResults = merged.map((g) => ({
       ...g,
       aiResult: null,
@@ -83,33 +95,40 @@ export async function hydrateSlate(
 
     return {
       games: gamesWithoutResults,
-      bestBets,
+      bestBets: lockedBestBets,
       totals: ZERO_TOTALS,
     };
   }
+
+  const lockedPicksStore = await loadLockedPicks(slateDate);
+  const lockedPicks = lockedPicksStore.picks ?? {};
 
   let recordsStore = await loadRecordsStore();
 
   scoresStore = persistFinalScores(merged, slateDate, scoresStore);
   await saveScoresStore(scoresStore);
 
-  const locked = await loadLockedBestBets(slateDate);
-  const bestBets = locked ?? suggestedBestBets;
-  if (!locked) {
-    await saveLockedBestBets(slateDate, suggestedBestBets);
-  }
+  const bestBetsLocked = lockedBestBets.filter((b) => b.lockedAt);
 
-  recordsStore = settlePendingFromScores(recordsStore, scoresStore);
-  const bestBetGamePks = getBestBetGamePks(bestBets);
+  recordsStore = settlePendingFromScores(recordsStore, scoresStore, {
+    [slateDate]: bestBetsLocked,
+  });
+
   recordsStore = syncDayRecords(
     recordsStore,
     slateDate,
     merged,
-    bestBetGamePks
+    lockedPicks,
+    bestBetsLocked
   );
   await saveRecordsStore(recordsStore);
 
   merged = applyRecordResults(merged, slateDate, recordsStore);
+  const bestBets = applyBestBetResults(
+    lockedBestBets,
+    slateDate,
+    recordsStore
+  );
   const totals = computeHistoricalTotals(recordsStore);
 
   return { games: merged, bestBets, totals };

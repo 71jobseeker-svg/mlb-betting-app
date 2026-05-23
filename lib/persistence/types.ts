@@ -1,9 +1,13 @@
+import type { BestBetType } from "@/lib/best-bets";
+
 export type PickResult = "win" | "loss";
 
 export type RecordTotals = {
   wins: number;
   losses: number;
 };
+
+export type RecordKind = "ai" | "bestbet";
 
 export type PendingPick = {
   gamePk: number;
@@ -12,7 +16,14 @@ export type PendingPick = {
   home: string;
   pickTeam: string;
   pickSide: "away" | "home";
-  wasBestBet: boolean;
+  recordKind: RecordKind;
+  lockedAt: string;
+  /** Best-bet only */
+  betType?: BestBetType;
+  totalsPick?: "over" | "under" | null;
+  totalPoint?: number | null;
+  /** @deprecated Legacy combined entry */
+  wasBestBet?: boolean;
 };
 
 export type SettledPick = {
@@ -22,12 +33,18 @@ export type SettledPick = {
   home: string;
   pickTeam: string;
   pickSide: "away" | "home";
-  wasBestBet: boolean;
+  recordKind: RecordKind;
+  lockedAt: string;
+  betType?: BestBetType;
+  totalsPick?: "over" | "under" | null;
+  totalPoint?: number | null;
   aiResult: PickResult;
   bestBetResult: PickResult | null;
   awayScore: number;
   homeScore: number;
   settledAt: string;
+  /** @deprecated Legacy */
+  wasBestBet?: boolean;
 };
 
 export type DayRecords = {
@@ -37,6 +54,26 @@ export type DayRecords = {
 
 export type RecordsStore = {
   days: Record<string, DayRecords>;
+};
+
+/** Moneyline + O/U snapshot locked on first generation for a slate day. */
+export type LockedGamePick = {
+  gamePk: number;
+  slateDate: string;
+  lockedAt: string;
+  pickTeam: string;
+  pickSide: "away" | "home";
+  pickOdds: number | null;
+  recommendation: string;
+  totalsPick: "over" | "under" | null;
+  totalsRecommendation: string | null;
+  totalsStatEdge: number;
+  away: string;
+  home: string;
+};
+
+export type LockedPicksDayStore = {
+  picks: Record<string, LockedGamePick>;
 };
 
 export type SavedScore = {

@@ -8,15 +8,21 @@ import { emptyRecordsStore } from "@/lib/persistence/records-logic";
 import { emptyScoresStore } from "@/lib/persistence/scores-logic";
 import type {
   AppMeta,
+  LockedPicksDayStore,
   RecordsStore,
   ScoresStore,
 } from "@/lib/persistence/types";
+import { lockedPicksKey } from "@/lib/persistence/keys";
 
 const RECORDS_FILE = "betting-records.json";
 const SCORES_FILE = "betting-scores.json";
 
 function bestBetsFileName(slateDate: string): string {
   return `best-bets-${slateDate}.json`;
+}
+
+function lockedPicksFileName(slateDate: string): string {
+  return `locked-picks-${slateDate}.json`;
 }
 
 async function redisGet<T>(key: string, fallback: T): Promise<T> {
@@ -134,4 +140,32 @@ export async function saveMeta(meta: AppMeta): Promise<void> {
     return;
   }
   await writeJsonFile("meta.json", meta);
+}
+
+export async function loadLockedPicks(
+  slateDate: string
+): Promise<LockedPicksDayStore> {
+  const key = lockedPicksKey(slateDate);
+  const empty = { picks: {} };
+
+  if (isRedisConfigured()) {
+    const store = await redisGet<LockedPicksDayStore | null>(key, null);
+    return store?.picks ? store : empty;
+  }
+
+  return readJsonFile(lockedPicksFileName(slateDate), empty);
+}
+
+export async function saveLockedPicks(
+  slateDate: string,
+  store: LockedPicksDayStore
+): Promise<void> {
+  const key = lockedPicksKey(slateDate);
+
+  if (isRedisConfigured()) {
+    await redisSet(key, store);
+    return;
+  }
+
+  await writeJsonFile(lockedPicksFileName(slateDate), store);
 }

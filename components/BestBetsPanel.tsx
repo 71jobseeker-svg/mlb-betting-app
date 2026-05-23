@@ -35,7 +35,9 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
                 #{bet.rank}{" "}
                 {bet.betType === "total" ? "O/U" : "ML"}
               </span>
-              {bet.aiResult && bet.betType === "moneyline" ? (
+              {bet.bestBetResult ? (
+                <ResultPill result={bet.bestBetResult} />
+              ) : bet.aiResult && bet.betType === "moneyline" ? (
                 <ResultPill result={bet.aiResult} />
               ) : null}
             </div>

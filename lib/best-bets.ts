@@ -10,6 +10,10 @@ export type BestBet = EnrichedGame & {
   betOdds: number | null;
   statReason: string;
   statScore: number;
+  /** Set when best bets are locked for the slate day */
+  lockedAt?: string;
+  /** Graded from locked snapshot after final */
+  bestBetResult?: "win" | "loss" | null;
 };
 
 const MIN_TOTALS_EDGE = 7;
