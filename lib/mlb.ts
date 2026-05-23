@@ -15,6 +15,11 @@ export type MlbScheduleResponse = {
         home?: { team?: { name?: string }; score?: number; isWinner?: boolean };
       };
       linescore?: {
+        currentInning?: number;
+        currentInningOrdinal?: string;
+        inningState?: string;
+        inningHalf?: string;
+        isTopInning?: boolean;
         teams?: {
           away?: { runs?: number };
           home?: { runs?: number };
@@ -45,6 +50,33 @@ export function extractGameScores(game: NonNullable<
     awayScore: awayScore ?? null,
     homeScore: homeScore ?? null,
   };
+}
+
+type ScheduleGame = NonNullable<
+  NonNullable<MlbScheduleResponse["dates"]>[0]["games"]
+>[0];
+
+/** e.g. "Top 3rd", "Bot 7th" — only for in-progress games. */
+export function extractLiveInning(game: ScheduleGame): string | null {
+  const state = game.status?.abstractGameState ?? "";
+  const detailed = (game.status?.detailedState ?? "").toLowerCase();
+  const inProgress =
+    state === "Live" ||
+    detailed.includes("in progress") ||
+    detailed.includes("manager challenge");
+
+  if (!inProgress) return null;
+
+  const ls = game.linescore;
+  const ordinal = ls?.currentInningOrdinal?.trim();
+  const half = ls?.inningHalf?.trim() ?? ls?.inningState?.trim();
+
+  if (!ordinal) return null;
+
+  if (half === "Top" || ls?.isTopInning === true) return `Top ${ordinal}`;
+  if (half === "Bottom" || ls?.isTopInning === false) return `Bot ${ordinal}`;
+
+  return ordinal;
 }
 
 export function extractGameResult(

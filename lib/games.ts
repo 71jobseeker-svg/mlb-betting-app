@@ -10,6 +10,7 @@ import {
   extractGameDateTime,
   extractGameResult,
   extractGameScores,
+  extractLiveInning,
   fetchMlbSchedule,
 } from "@/lib/mlb";
 import { parseAiPick } from "@/lib/picks";
@@ -29,6 +30,8 @@ export type EnrichedGame = {
   away: string;
   home: string;
   status: string;
+  /** In-progress only, e.g. "Top 3rd" */
+  liveInning: string | null;
   startTime: string;
   gameDateIso: string | null;
   isFinal: boolean;
@@ -103,6 +106,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       away,
       home,
       status: game.status?.detailedState ?? "Unknown",
+      liveInning: extractLiveInning(game),
       startTime,
       gameDateIso,
       isFinal,
@@ -156,6 +160,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       away: game.away,
       home: game.home,
       status: game.status,
+      liveInning: game.liveInning,
       startTime: game.startTime,
       gameDateIso: game.gameDateIso,
       isFinal: game.isFinal,

@@ -83,6 +83,11 @@ export function GameCard({
               <span className="mx-1 text-[#7a9a82]">–</span>
               {formatScore(game.homeScore)}
             </p>
+            {game.liveInning ? (
+              <p className="mt-1 font-display text-lg tracking-wide text-[#00e676]">
+                {game.liveInning}
+              </p>
+            ) : null}
           </div>
           {runTotal !== null ? (
             <p className="text-xs text-[#a8c4ae]">
