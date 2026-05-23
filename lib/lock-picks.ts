@@ -1,6 +1,10 @@
 import "server-only";
 
 import type { BestBet } from "@/lib/best-bets";
+import {
+  canSelectAndLockBestBets,
+  isLockedBestBetsValid,
+} from "@/lib/best-bets-ready";
 import type { EnrichedGame } from "@/lib/games";
 import type { LockedGamePick, LockedPicksDayStore } from "@/lib/persistence/types";
 import { recordKey } from "@/lib/persistence/keys";
@@ -10,10 +14,6 @@ import {
   saveLockedBestBets,
   saveLockedPicks,
 } from "@/lib/persistence/store";
-
-function emptyLockedPicksStore(): LockedPicksDayStore {
-  return { picks: {} };
-}
 
 function gameToLockedPick(
   game: EnrichedGame,
@@ -28,6 +28,7 @@ function gameToLockedPick(
     pickSide: game.pickSide,
     pickOdds: game.pickOdds,
     recommendation: game.recommendation,
+    moneylineStatEdge: game.moneylineStatEdge,
     totalsPick: game.totalsPick,
     totalsRecommendation: game.totalsRecommendation,
     totalsStatEdge: game.totalsStatEdge,
@@ -46,6 +47,7 @@ function mergeLockedIntoGame(
     pickSide: lock.pickSide,
     pickOdds: lock.pickOdds,
     recommendation: lock.recommendation,
+    moneylineStatEdge: lock.moneylineStatEdge ?? game.moneylineStatEdge,
     totalsPick: lock.totalsPick,
     totalsRecommendation: lock.totalsRecommendation,
     totalsStatEdge: lock.totalsStatEdge,
@@ -86,15 +88,22 @@ export async function applyLockedPicks(
 }
 
 /**
- * Lock best-bet panel for the slate day on first generation (same as picks).
+ * Lock best bets only after 8am PT with full slate odds.
+ * Replaces invalid early locks (blank odds / pre-8am).
  */
 export async function applyLockedBestBets(
   slateDate: string,
-  suggested: BestBet[]
+  suggested: BestBet[],
+  games: EnrichedGame[]
 ): Promise<BestBet[]> {
   const existing = await loadLockedBestBets(slateDate);
-  if (existing && existing.length > 0) {
+
+  if (existing && existing.length > 0 && isLockedBestBetsValid(existing)) {
     return existing;
+  }
+
+  if (!canSelectAndLockBestBets(games) || suggested.length === 0) {
+    return [];
   }
 
   const lockedAt = new Date().toISOString();

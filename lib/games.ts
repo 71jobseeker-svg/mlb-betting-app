@@ -2,6 +2,12 @@ import "server-only";
 
 import { generateBettingRecommendations } from "@/lib/analysis";
 import { selectBestBets, type BestBet } from "@/lib/best-bets";
+import {
+  bestBetsPendingMessage,
+  canSelectAndLockBestBets,
+  resolveBestBetsStatus,
+  type BestBetsStatus,
+} from "@/lib/best-bets-ready";
 import { hydrateSlate } from "@/lib/hydrate-slate";
 import { applyLockedBestBets, applyLockedPicks } from "@/lib/lock-picks";
 import type { RecordTotals } from "@/lib/persistence/types";
@@ -48,6 +54,7 @@ export type EnrichedGame = {
   totalsRecommendation: string | null;
   totalsPick: "over" | "under" | null;
   totalsStatEdge: number;
+  moneylineStatEdge: number;
   pickTeam: string;
   pickSide: "away" | "home";
   pickOdds: number | null;
@@ -59,6 +66,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
   date: string;
   games: EnrichedGame[];
   bestBets: BestBet[];
+  bestBetsStatus: BestBetsStatus;
+  bestBetsMessage: string | null;
   totals: {
     bestBets: RecordTotals;
     aiPicks: RecordTotals;
@@ -75,6 +84,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       date,
       games: [],
       bestBets: [],
+      bestBetsStatus: { type: "pending", reason: "awaiting-odds" },
+      bestBetsMessage: null,
       totals: {
         bestBets: { wins: 0, losses: 0 },
         aiPicks: { wins: 0, losses: 0 },
@@ -142,6 +153,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       recommendations.get(game.gamePk) ??
       ({
         moneylineRecommendation: "No recommendation available.",
+        moneylineStatEdge: 0,
         totalsPick: null,
         totalsRecommendation: null,
         totalsStatEdge: 0,
@@ -177,6 +189,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       totalsRecommendation: analysis.totalsRecommendation,
       totalsPick: analysis.totalsPick,
       totalsStatEdge: analysis.totalsStatEdge,
+      moneylineStatEdge: analysis.moneylineStatEdge,
       pickTeam: pick.pickTeam,
       pickSide: pick.pickSide,
       pickOdds: pick.pickOdds,
@@ -188,8 +201,18 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
   // Lock picks on first generation — never overwrite later in the day
   const games = await applyLockedPicks(date, freshGames);
 
-  const suggestedBestBets = selectBestBets(games);
-  const lockedBestBets = await applyLockedBestBets(date, suggestedBestBets);
+  const suggestedBestBets = canSelectAndLockBestBets(games)
+    ? selectBestBets(games)
+    : [];
+
+  const lockedBestBets = await applyLockedBestBets(
+    date,
+    suggestedBestBets,
+    games
+  );
+
+  const bestBetsStatus = resolveBestBetsStatus(games, lockedBestBets);
+  const bestBetsMessage = bestBetsPendingMessage(bestBetsStatus);
 
   const hydrated = await hydrateSlate(date, games, lockedBestBets);
 
@@ -197,6 +220,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     date,
     games: hydrated.games,
     bestBets: hydrated.bestBets,
+    bestBetsStatus,
+    bestBetsMessage,
     totals: hydrated.totals,
   };
 }

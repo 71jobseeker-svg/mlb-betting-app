@@ -65,6 +65,7 @@ export type LockedGamePick = {
   pickSide: "away" | "home";
   pickOdds: number | null;
   recommendation: string;
+  moneylineStatEdge: number;
   totalsPick: "over" | "under" | null;
   totalsRecommendation: string | null;
   totalsStatEdge: number;

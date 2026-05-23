@@ -2,7 +2,31 @@ import { ResultPill } from "@/components/RecordTracker";
 import { formatAmericanOdds } from "@/lib/odds";
 import type { BestBet } from "@/lib/best-bets";
 
-export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
+export function BestBetsPanel({
+  bestBets,
+  pendingMessage,
+}: {
+  bestBets: BestBet[];
+  pendingMessage?: string | null;
+}) {
+  if (pendingMessage) {
+    return (
+      <section className="sb-best-bets-box rounded-2xl p-6 sm:p-8">
+        <div className="mb-4">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#ffc107]">
+            ★ Top Plays
+          </p>
+          <h2 className="font-display text-4xl tracking-wide text-white sm:text-5xl">
+            BEST BETS OF THE DAY
+          </h2>
+        </div>
+        <p className="text-center text-sm leading-relaxed text-[#a8c4ae] sm:text-base">
+          {pendingMessage}
+        </p>
+      </section>
+    );
+  }
+
   if (bestBets.length === 0) return null;
 
   return (
@@ -17,7 +41,8 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
           </h2>
         </div>
         <p className="max-w-xs text-right text-xs text-[#a8c4ae]">
-          Top AI moneyline & O/U plays (7+ statistical edge) ranked by profile
+          Highest AI edge across the slate (ML confidence + O/U 7+), locked at
+          generation
         </p>
       </div>
 
@@ -67,11 +92,13 @@ export function BestBetsPanel({ bestBets }: { bestBets: BestBet[] }) {
               {bet.betType === "total" ? "" : "ML "}
               {formatAmericanOdds(bet.betOdds)}
             </p>
-            {bet.betType === "total" && bet.totalsStatEdge >= 7 ? (
-              <p className="mt-1 text-xs font-bold uppercase tracking-wider text-[#ffc107]">
-                {bet.totalsStatEdge}/10 statistical edge
-              </p>
-            ) : null}
+            <p className="mt-1 text-xs font-bold uppercase tracking-wider text-[#ffc107]">
+              {bet.betType === "total"
+                ? `${bet.totalsStatEdge}/10 edge`
+                : `${bet.moneylineStatEdge}/10 ML edge`}
+              {" · "}
+              score {Math.round(bet.statScore * 100) / 100}
+            </p>
             <p className="mt-3 text-xs leading-relaxed text-[#a8c4ae]">{bet.statReason}</p>
           </li>
         ))}

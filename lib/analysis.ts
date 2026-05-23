@@ -15,6 +15,8 @@ export type GameForAnalysis = {
 
 export type GameAnalysis = {
   moneylineRecommendation: string;
+  /** AI confidence / edge for moneyline (0–10). */
+  moneylineStatEdge: number;
   totalsPick: "over" | "under" | null;
   totalsRecommendation: string | null;
   /** AI statistical edge for O/U (0–10). Best bets use picks with edge >= 7. */
@@ -27,6 +29,7 @@ type AiResponseItem = {
   gamePk: number;
   moneylineRecommendation?: string;
   recommendation?: string;
+  moneylineStatEdge?: number;
   totalsPick?: "over" | "under" | null;
   totalsRecommendation?: string | null;
   totalsStatEdge?: number;
@@ -54,11 +57,12 @@ export async function generateBettingRecommendations(
 
 Rules:
 - Moneyline: ALWAYS pick one team. Never pass. One sentence, cite American odds.
+- moneylineStatEdge: integer 0-10 (your confidence/statistical edge on the ML pick; 10=maximum).
 - Totals: Only recommend Over or Under if you see a real statistical edge (line value, pitching, weather, park factors). Otherwise set totalsPick to null and totalsStatEdge to 0.
 - totalsStatEdge: integer 0-10 (0=no edge, 7+=strong edge worth a best bet, 10=maximum confidence). Only use 7+ when you genuinely favor the total bet.
 - totalsRecommendation: one sentence explaining the O/U pick, or null if no edge.
 - Return ONLY valid JSON array:
-[{"gamePk":number,"moneylineRecommendation":"...","totalsPick":"over"|"under"|null,"totalsRecommendation":"..."|null,"totalsStatEdge":number}]
+[{"gamePk":number,"moneylineRecommendation":"...","moneylineStatEdge":number,"totalsPick":"over"|"under"|null,"totalsRecommendation":"..."|null,"totalsStatEdge":number}]
 
 Games:
 ${games
@@ -148,6 +152,7 @@ function normalizeAnalysis(
     totalsPick = item.totalsPick;
   }
 
+  const moneylineStatEdge = clampEdge(item.moneylineStatEdge ?? 0);
   const totalsStatEdge = clampEdge(item.totalsStatEdge ?? 0);
 
   let totalsRecommendation =
@@ -168,6 +173,7 @@ function normalizeAnalysis(
 
   return {
     moneylineRecommendation,
+    moneylineStatEdge,
     totalsPick,
     totalsRecommendation,
     totalsStatEdge: totalsPick ? totalsStatEdge : 0,
@@ -203,6 +209,7 @@ function fallbackMoneyline(game: GameForAnalysis): string {
 function fallbackAnalysis(game: GameForAnalysis): GameAnalysis {
   return {
     moneylineRecommendation: fallbackMoneyline(game),
+    moneylineStatEdge: game.awayMoneyline !== null && game.homeMoneyline !== null ? 5 : 0,
     totalsPick: null,
     totalsRecommendation: null,
     totalsStatEdge: 0,

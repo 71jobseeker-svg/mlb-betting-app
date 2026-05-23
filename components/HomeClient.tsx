@@ -12,6 +12,7 @@ type HomeClientProps = {
   slateDate: string;
   games: EnrichedGame[];
   bestBets: BestBet[];
+  bestBetsMessage: string | null;
   totals: {
     bestBets: RecordTotals;
     aiPicks: RecordTotals;
@@ -22,6 +23,7 @@ export function HomeClient({
   slateDate,
   games,
   bestBets,
+  bestBetsMessage,
   totals,
 }: HomeClientProps) {
   const bestBetRanks = useMemo(() => {
@@ -51,7 +53,10 @@ export function HomeClient({
           <p className="text-center text-[#7a9a82]">No games scheduled today.</p>
         ) : (
           <div className="space-y-10">
-            <BestBetsPanel bestBets={bestBets} />
+            <BestBetsPanel
+              bestBets={bestBets}
+              pendingMessage={bestBetsMessage}
+            />
 
             <section>
               <div className="mb-6 flex items-center gap-3">

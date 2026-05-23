@@ -25,3 +25,26 @@ export function addDaysToDateString(dateStr: string, days: number): string {
   const utcNoon = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
   return formatDateInPacific(utcNoon);
 }
+
+export function getPacificTimeParts(date: Date = new Date()): {
+  hour: number;
+  minute: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: SLATE_TIMEZONE,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(date);
+
+  return {
+    hour: Number(parts.find((p) => p.type === "hour")?.value ?? 0),
+    minute: Number(parts.find((p) => p.type === "minute")?.value ?? 0),
+  };
+}
+
+/** Best Bets selection runs at/after 8:00 AM Pacific. */
+export function isAfter8amPacific(date: Date = new Date()): boolean {
+  const { hour, minute } = getPacificTimeParts(date);
+  return hour > 8 || (hour === 8 && minute >= 0);
+}

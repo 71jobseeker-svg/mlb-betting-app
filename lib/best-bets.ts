@@ -32,16 +32,16 @@ function scoreMoneylineBet(game: EnrichedGame): {
   reason: string;
   betLabel: string;
   betOdds: number | null;
-} {
-  const { pickTeam, pickOdds, awayMoneyline, homeMoneyline } = game;
+} | null {
+  const { pickTeam, pickOdds, awayMoneyline, homeMoneyline, moneylineStatEdge } =
+    game;
 
-  if (pickOdds === null || awayMoneyline === null || homeMoneyline === null) {
-    return {
-      score: 0.2,
-      reason: `AI backs ${pickTeam} on the moneyline.`,
-      betLabel: pickTeam,
-      betOdds: pickOdds,
-    };
+  if (
+    pickOdds === null ||
+    awayMoneyline === null ||
+    homeMoneyline === null
+  ) {
+    return null;
   }
 
   const pickImpl = impliedProbability(pickOdds);
@@ -57,11 +57,13 @@ function scoreMoneylineBet(game: EnrichedGame): {
     valueScore = pickImpl >= 0.55 ? 0.75 : 0.45;
   }
 
-  const score = valueScore * 0.55 + competitiveness * 0.45;
+  const edgeNorm = moneylineStatEdge / 10;
+  const score =
+    edgeNorm * 0.5 + pickImpl * 0.3 + valueScore * 0.1 + competitiveness * 0.1;
 
   return {
     score,
-    reason: `AI ML: ${pickTeam} ${formatLine(pickOdds)} (${Math.round(pickImpl * 100)}% implied) — top statistical profile.`,
+    reason: `AI ML: ${pickTeam} ${formatLine(pickOdds)} — ${moneylineStatEdge}/10 edge, ${Math.round(pickImpl * 100)}% implied win prob.`,
     betLabel: pickTeam,
     betOdds: pickOdds,
   };
@@ -83,16 +85,15 @@ function scoreTotalsBet(game: EnrichedGame): {
 
   const odds =
     game.totalsPick === "over" ? game.overPrice : game.underPrice;
+  if (odds === null) return null;
+
   const betLabel = `${game.totalsPick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
   const edgeNorm = game.totalsStatEdge / 10;
 
-  let juiceScore = 0.5;
-  if (odds !== null) {
-    const impl = impliedProbability(odds);
-    juiceScore = Math.max(0.4, 1 - Math.abs(impl - 0.52) / 0.12);
-  }
+  const impl = impliedProbability(odds);
+  const juiceScore = Math.max(0.4, 1 - Math.abs(impl - 0.52) / 0.12);
 
-  const score = edgeNorm * 0.7 + juiceScore * 0.3;
+  const score = edgeNorm * 0.75 + juiceScore * 0.25;
 
   return {
     score,
@@ -104,26 +105,43 @@ function scoreTotalsBet(game: EnrichedGame): {
   };
 }
 
+type Candidate = {
+  game: EnrichedGame;
+  betType: BestBetType;
+  score: number;
+  reason: string;
+  betLabel: string;
+  betOdds: number | null;
+  edge: number;
+};
+
+function candidateEdge(game: EnrichedGame, betType: BestBetType): number {
+  return betType === "total" ? game.totalsStatEdge : game.moneylineStatEdge;
+}
+
+function compareCandidates(a: Candidate, b: Candidate): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.edge !== a.edge) return b.edge - a.edge;
+  return b.game.gamePk - a.game.gamePk;
+}
+
+/** Top plays by statistical edge / confidence — never schedule order. */
 export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
-  const candidates: Array<{
-    game: EnrichedGame;
-    betType: BestBetType;
-    score: number;
-    reason: string;
-    betLabel: string;
-    betOdds: number | null;
-  }> = [];
+  const candidates: Candidate[] = [];
 
   for (const game of games) {
     const ml = scoreMoneylineBet(game);
-    candidates.push({
-      game,
-      betType: "moneyline",
-      score: ml.score,
-      reason: ml.reason,
-      betLabel: ml.betLabel,
-      betOdds: ml.betOdds,
-    });
+    if (ml) {
+      candidates.push({
+        game,
+        betType: "moneyline",
+        score: ml.score,
+        reason: ml.reason,
+        betLabel: ml.betLabel,
+        betOdds: ml.betOdds,
+        edge: game.moneylineStatEdge,
+      });
+    }
 
     const totals = scoreTotalsBet(game);
     if (totals) {
@@ -134,11 +152,12 @@ export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
         reason: totals.reason,
         betLabel: totals.betLabel,
         betOdds: totals.betOdds,
+        edge: game.totalsStatEdge,
       });
     }
   }
 
-  const top = candidates.sort((a, b) => b.score - a.score).slice(0, limit);
+  const top = [...candidates].sort(compareCandidates).slice(0, limit);
 
   return top.map((c, i) => ({
     ...c.game,
