@@ -39,8 +39,25 @@ export async function fetchMlbMoneylineOdds(): Promise<OddsApiEvent[]> {
     url.searchParams.set("oddsFormat", "american");
 
     const res = await fetch(url.toString(), { cache: "no-store" });
+    const remaining = res.headers.get("x-requests-remaining");
+    if (remaining !== null) {
+      console.log(`[Odds API] requests remaining: ${remaining}`);
+    }
+
     if (!res.ok) {
-      console.error(`Odds API failed: ${res.status} ${res.statusText}`);
+      let detail = res.statusText;
+      try {
+        const err = (await res.json()) as { message?: string };
+        if (err.message) detail = err.message;
+      } catch {
+        // non-JSON error body
+      }
+      if (res.status === 401) {
+        console.error(
+          "[Odds API] ODDS_API_KEY is invalid or expired (401). Update .env.local and your host env (e.g. Vercel)."
+        );
+      }
+      console.error(`Odds API failed: ${res.status} ${detail}`);
       return [];
     }
 
@@ -73,17 +90,25 @@ export function extractMoneyline(
   awayTeam: string,
   homeTeam: string
 ): MoneylineOdds {
-  const bookmaker = event.bookmakers?.[0];
-  const market = bookmaker?.markets?.find((m) => m.key === "h2h");
-  const outcomes = market?.outcomes ?? [];
+  for (const bookmaker of event.bookmakers ?? []) {
+    const market = bookmaker.markets?.find((m) => m.key === "h2h");
+    const outcomes = market?.outcomes ?? [];
+    const awayOutcome = outcomes.find((o) => teamsMatch(o.name, awayTeam));
+    const homeOutcome = outcomes.find((o) => teamsMatch(o.name, homeTeam));
 
-  const awayOutcome = outcomes.find((o) => teamsMatch(o.name, awayTeam));
-  const homeOutcome = outcomes.find((o) => teamsMatch(o.name, homeTeam));
+    if (awayOutcome?.price != null && homeOutcome?.price != null) {
+      return {
+        awayMoneyline: awayOutcome.price,
+        homeMoneyline: homeOutcome.price,
+        bookmaker: bookmaker.title ?? null,
+      };
+    }
+  }
 
   return {
-    awayMoneyline: awayOutcome?.price ?? null,
-    homeMoneyline: homeOutcome?.price ?? null,
-    bookmaker: bookmaker?.title ?? null,
+    awayMoneyline: null,
+    homeMoneyline: null,
+    bookmaker: null,
   };
 }
 
@@ -94,18 +119,23 @@ export type TotalLine = {
 };
 
 export function extractTotalLine(event: OddsApiEvent): TotalLine {
-  const bookmaker = event.bookmakers?.[0];
-  const market = bookmaker?.markets?.find((m) => m.key === "totals");
-  const outcomes = market?.outcomes ?? [];
+  for (const bookmaker of event.bookmakers ?? []) {
+    const market = bookmaker.markets?.find((m) => m.key === "totals");
+    const outcomes = market?.outcomes ?? [];
+    const over = outcomes.find((o) => o.name === "Over");
+    const under = outcomes.find((o) => o.name === "Under");
+    const point = over?.point ?? under?.point ?? null;
 
-  const over = outcomes.find((o) => o.name === "Over");
-  const under = outcomes.find((o) => o.name === "Under");
+    if (point !== null && over?.price != null && under?.price != null) {
+      return {
+        point,
+        overPrice: over.price,
+        underPrice: under.price,
+      };
+    }
+  }
 
-  return {
-    point: over?.point ?? under?.point ?? null,
-    overPrice: over?.price ?? null,
-    underPrice: under?.price ?? null,
-  };
+  return { point: null, overPrice: null, underPrice: null };
 }
 
 export function formatAmericanOdds(price: number | null): string {

@@ -29,15 +29,16 @@ export function isPickableGame(game: {
   return true;
 }
 
-/** Odds required only for games still on today's pickable slate (not finals). */
+export function gameHasMoneylineOdds(game: GameWithOdds): boolean {
+  return game.awayMoneyline !== null && game.homeMoneyline !== null;
+}
+
+/** Every pickable game has moneyline odds (diagnostics / full-slate messaging). */
 export function hasFullSlateMoneylineOdds(games: GameWithOdds[]): boolean {
   const pickable = games.filter(isPickableGame);
   if (pickable.length === 0) return false;
 
-  const withOdds = pickable.filter(
-    (g) => g.awayMoneyline !== null && g.homeMoneyline !== null
-  );
-
+  const withOdds = pickable.filter(gameHasMoneylineOdds);
   return withOdds.length === pickable.length;
 }
 
@@ -58,7 +59,7 @@ export function countOddsCoverage(
 
   let withOdds = 0;
   for (const g of pickable) {
-    if (g.awayMoneyline !== null && g.homeMoneyline !== null) {
+    if (gameHasMoneylineOdds(g)) {
       withOdds++;
     } else {
       missing.push({
@@ -71,9 +72,14 @@ export function countOddsCoverage(
   return { pickable: pickable.length, withOdds, missing };
 }
 
-/** 8:00 AM PT + moneyline odds for every pickable game. */
+/** At least one pickable game has moneyline odds — enough to publish partial picks. */
+export function hasAnyPickableMoneylineOdds(games: GameWithOdds[]): boolean {
+  return countOddsCoverage(games).withOdds > 0;
+}
+
+/** 8:00 AM PT + moneyline odds on at least one pickable game. */
 export function canGenerateAndLockPicks(games: GameWithOdds[]): boolean {
-  return isAfter8amPacific() && hasFullSlateMoneylineOdds(games);
+  return isAfter8amPacific() && hasAnyPickableMoneylineOdds(games);
 }
 
 export function resolveSlatePicksStatus(
@@ -86,7 +92,7 @@ export function resolveSlatePicksStatus(
   if (!isAfter8amPacific()) {
     return { type: "pending", reason: "before-8am" };
   }
-  if (!hasFullSlateMoneylineOdds(games)) {
+  if (!hasAnyPickableMoneylineOdds(games)) {
     return { type: "pending", reason: "awaiting-odds" };
   }
   return { type: "ready" };
@@ -105,13 +111,16 @@ export function slatePicksPendingMessage(
     const { pickable, withOdds, missing } = countOddsCoverage(
       games as Array<GameWithOdds & { away: string; home: string }>
     );
+    // Partial slate: never block the UI when any pickable game already has lines.
+    if (withOdds > 0) return null;
+
     const sample = missing
       .slice(0, 3)
       .map((m) => `${m.away} @ ${m.home}`)
       .join(", ");
-    return `Waiting for moneyline odds on all pickable games (${withOdds}/${pickable} have lines${sample ? `; missing: ${sample}` : ""}).`;
+    return `Waiting for moneyline odds (${withOdds}/${pickable} games have lines${sample ? `; missing: ${sample}` : ""}). Check ODDS_API_KEY in .env.local and deployment env if this persists.`;
   }
-  return "Waiting for moneyline odds on all pickable games before publishing picks and Best Bets.";
+  return "Waiting for moneyline odds before publishing picks and Best Bets.";
 }
 
 export function isValidLockedGamePick(lock: LockedGamePick): boolean {
@@ -161,7 +170,13 @@ export function resolveBestBetsStatus(
   games: EnrichedGame[],
   locked: BestBet[]
 ): SlatePicksStatus {
-  const hasValidLocks =
+  const hasValidBestBetLocks =
     locked.length > 0 && isLockedBestBetsValid(locked);
-  return resolveSlatePicksStatus(games, hasValidLocks);
+  const hasValidGamePickLocks = games.some(
+    (g) => g.picksAvailable && g.pickOdds !== null
+  );
+  return resolveSlatePicksStatus(
+    games,
+    hasValidBestBetLocks || hasValidGamePickLocks
+  );
 }

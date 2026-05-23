@@ -8,6 +8,7 @@ import {
 import {
   canGenerateAndLockPicks,
   countOddsCoverage,
+  hasAnyPickableMoneylineOdds,
   hasFullSlateMoneylineOdds,
   isPickableGame,
 } from "@/lib/slate-picks-ready";
@@ -39,6 +40,7 @@ export async function logSlateGateDiagnostics(
   const coverage = countOddsCoverage(shells);
   const after8 = isAfter8amPacific();
   const fullOdds = hasFullSlateMoneylineOdds(shells);
+  const anyOdds = hasAnyPickableMoneylineOdds(shells);
   const canLock = canGenerateAndLockPicks(shells);
   const paused = isRecordsPaused(slateDate, meta);
 
@@ -65,6 +67,7 @@ export async function logSlateGateDiagnostics(
     pickableGames: coverage.pickable,
     gamesWithOdds: coverage.withOdds,
     hasFullSlateMoneylineOdds: fullOdds,
+    hasAnyPickableMoneylineOdds: anyOdds,
     canGenerateAndLockPicks: canLock,
     missingOddsPickable: missingPickable,
   });

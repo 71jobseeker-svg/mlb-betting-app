@@ -3,6 +3,7 @@ import "server-only";
 import type { BestBet } from "@/lib/best-bets";
 import {
   canGenerateAndLockPicks,
+  gameHasMoneylineOdds,
   isLockedBestBetsValid,
   isValidLockedGamePick,
 } from "@/lib/slate-picks-ready";
@@ -58,7 +59,7 @@ function mergeLockedIntoGame(
 
 /**
  * Apply persisted locks: never overwrite an existing valid pick for today.
- * New picks lock only after 8:00 AM PT with full slate odds.
+ * New picks lock only after 8:00 AM PT when at least one pickable game has odds.
  */
 export async function applyLockedPicks(
   slateDate: string,
@@ -67,7 +68,7 @@ export async function applyLockedPicks(
 ): Promise<EnrichedGame[]> {
   const store = await loadLockedPicks(slateDate);
   const picks = store.picks ?? {};
-  const canLockNew = picksReady && canGenerateAndLockPicks(freshGames);
+  const canLockNew = picksReady;
   let dirty = false;
   const lockedAt = new Date().toISOString();
 
@@ -79,7 +80,7 @@ export async function applyLockedPicks(
       return mergeLockedIntoGame(game, existing);
     }
 
-    if (!canLockNew) {
+    if (!canLockNew || !gameHasMoneylineOdds(game) || game.pickOdds === null) {
       return game;
     }
 
@@ -96,7 +97,7 @@ export async function applyLockedPicks(
 }
 
 /**
- * Lock best bets only after 8am PT with full slate odds.
+ * Lock best bets only after 8am PT when at least one pickable game has odds.
  * Replaces invalid early locks (blank odds / pre-8am).
  */
 export async function applyLockedBestBets(

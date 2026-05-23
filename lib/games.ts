@@ -26,6 +26,8 @@ import { clearRecordsPauseAfter8am } from "@/lib/persistence/reset";
 import { logSlateGateDiagnostics, logSlatePipeline } from "@/lib/slate-diagnostics";
 import {
   canGenerateAndLockPicks,
+  gameHasMoneylineOdds,
+  isPickableGame,
   resolveBestBetsStatus,
   resolveSlatePicksStatus,
   slatePicksPendingMessage,
@@ -203,9 +205,15 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     );
   } else {
     try {
-      logSlatePipeline("anthropic-start", { games: shells.length });
+      const shellsForAnalysis = shells.filter(
+        (g) => isPickableGame(g) && gameHasMoneylineOdds(g)
+      );
+      logSlatePipeline("anthropic-start", {
+        games: shellsForAnalysis.length,
+        skippedNoOdds: shells.length - shellsForAnalysis.length,
+      });
       const recommendations = await generateBettingRecommendations(
-        shells.map((g) => ({
+        shellsForAnalysis.map((g) => ({
           gamePk: g.gamePk,
           away: g.away,
           home: g.home,
@@ -221,6 +229,30 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       logSlatePipeline("anthropic-ok", { count: recommendations.size });
 
       freshGames = shells.map((shell) => {
+        if (!isPickableGame(shell)) {
+          return {
+            ...shell,
+            picksAvailable: false,
+            recommendation: shell.status,
+            totalsRecommendation: null,
+            totalsPick: null,
+            totalsStatEdge: 0,
+            moneylineStatEdge: 0,
+            pickTeam: shell.away,
+            pickSide: "away" as const,
+            pickOdds: null,
+            aiResult: null,
+            bestBetResult: null,
+          };
+        }
+
+        if (!gameHasMoneylineOdds(shell)) {
+          return buildPendingGame(
+            shell,
+            "Moneyline odds not available for this matchup yet."
+          );
+        }
+
         const analysis =
           recommendations.get(shell.gamePk) ??
           ({
@@ -241,7 +273,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
 
         return {
           ...shell,
-          picksAvailable: false,
+          picksAvailable:
+            gameHasMoneylineOdds(shell) && pick.pickOdds !== null,
           recommendation: analysis.moneylineRecommendation,
           totalsRecommendation: analysis.totalsRecommendation,
           totalsPick: analysis.totalsPick,
