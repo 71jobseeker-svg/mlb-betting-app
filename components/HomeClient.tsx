@@ -67,6 +67,7 @@ export function HomeClient({
           <div className="space-y-10">
             <BestBetsPanel
               bestBets={bestBets}
+              games={games}
               pendingMessage={picksMessage}
             />
 
