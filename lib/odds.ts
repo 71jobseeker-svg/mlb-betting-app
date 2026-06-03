@@ -22,6 +22,21 @@ export type MoneylineOdds = {
   bookmaker: string | null;
 };
 
+export type TotalLine = {
+  point: number | null;
+  overPrice: number | null;
+  underPrice: number | null;
+};
+
+export type RunLineOdds = {
+  awayRunLinePoint: number | null;
+  awayRunLinePrice: number | null;
+  homeRunLinePoint: number | null;
+  homeRunLinePrice: number | null;
+};
+
+export type GameOdds = MoneylineOdds & RunLineOdds & TotalLine;
+
 export type FavoriteSide = "away" | "home" | "pick";
 
 export async function fetchMlbMoneylineOdds(): Promise<OddsApiEvent[]> {
@@ -90,72 +105,153 @@ export function extractMoneyline(
   awayTeam: string,
   homeTeam: string
 ): MoneylineOdds {
-  for (const bookmaker of event.bookmakers ?? []) {
-    const market = bookmaker.markets?.find((m) => m.key === "h2h");
-    const outcomes = market?.outcomes ?? [];
-    const awayOutcome = outcomes.find((o) => teamsMatch(o.name, awayTeam));
-    const homeOutcome = outcomes.find((o) => teamsMatch(o.name, homeTeam));
+  return extractGameOdds(event, awayTeam, homeTeam);
+}
 
-    if (awayOutcome?.price != null && homeOutcome?.price != null) {
-      return {
-        awayMoneyline: awayOutcome.price,
-        homeMoneyline: homeOutcome.price,
-        bookmaker: bookmaker.title ?? null,
-      };
-    }
+type MarketOutcome = { name: string; price: number; point?: number };
+
+function findTeamOutcome(
+  outcomes: MarketOutcome[],
+  mlbName: string,
+  eventName: string
+): MarketOutcome | undefined {
+  return outcomes.find(
+    (o) => teamsMatch(o.name, mlbName) || teamsMatch(o.name, eventName)
+  );
+}
+
+function parseH2h(
+  market: { outcomes?: MarketOutcome[] } | undefined,
+  awayTeam: string,
+  homeTeam: string,
+  eventAway: string,
+  eventHome: string
+): { away: number; home: number } | null {
+  const outcomes = market?.outcomes ?? [];
+  const awayOutcome = findTeamOutcome(outcomes, awayTeam, eventAway);
+  const homeOutcome = findTeamOutcome(outcomes, homeTeam, eventHome);
+  if (awayOutcome?.price == null || homeOutcome?.price == null) return null;
+  return { away: awayOutcome.price, home: homeOutcome.price };
+}
+
+function parseSpreads(
+  market: { outcomes?: MarketOutcome[] } | undefined,
+  awayTeam: string,
+  homeTeam: string,
+  eventAway: string,
+  eventHome: string
+): RunLineOdds | null {
+  const outcomes = market?.outcomes ?? [];
+  const awayOutcome = findTeamOutcome(outcomes, awayTeam, eventAway);
+  const homeOutcome = findTeamOutcome(outcomes, homeTeam, eventHome);
+
+  if (
+    awayOutcome?.price == null ||
+    awayOutcome.point == null ||
+    homeOutcome?.price == null ||
+    homeOutcome.point == null
+  ) {
+    return null;
   }
 
   return {
-    awayMoneyline: null,
-    homeMoneyline: null,
-    bookmaker: null,
+    awayRunLinePoint: awayOutcome.point,
+    awayRunLinePrice: awayOutcome.price,
+    homeRunLinePoint: homeOutcome.point,
+    homeRunLinePrice: homeOutcome.price,
   };
 }
 
-export type TotalLine = {
-  point: number | null;
-  overPrice: number | null;
-  underPrice: number | null;
+function parseTotals(
+  market: { outcomes?: MarketOutcome[] } | undefined
+): TotalLine | null {
+  const outcomes = market?.outcomes ?? [];
+  const over = outcomes.find((o) => o.name === "Over");
+  const under = outcomes.find((o) => o.name === "Under");
+  const point = over?.point ?? under?.point ?? null;
+
+  if (point === null || over?.price == null || under?.price == null) {
+    return null;
+  }
+
+  return { point, overPrice: over.price, underPrice: under.price };
+}
+
+const EMPTY_GAME_ODDS: GameOdds = {
+  awayMoneyline: null,
+  homeMoneyline: null,
+  bookmaker: null,
+  awayRunLinePoint: null,
+  awayRunLinePrice: null,
+  homeRunLinePoint: null,
+  homeRunLinePrice: null,
+  point: null,
+  overPrice: null,
+  underPrice: null,
 };
 
-export type RunLineOdds = {
-  awayRunLinePoint: number | null;
-  awayRunLinePrice: number | null;
-  homeRunLinePoint: number | null;
-  homeRunLinePrice: number | null;
-};
+/** Pull h2h, spreads, and totals from the same bookmaker when possible. */
+export function extractGameOdds(
+  event: OddsApiEvent,
+  awayTeam: string,
+  homeTeam: string
+): GameOdds {
+  const eventAway = event.away_team;
+  const eventHome = event.home_team;
+
+  let bestPartial: GameOdds | null = null;
+
+  for (const bookmaker of event.bookmakers ?? []) {
+    const h2h = parseH2h(
+      bookmaker.markets?.find((m) => m.key === "h2h"),
+      awayTeam,
+      homeTeam,
+      eventAway,
+      eventHome
+    );
+    if (!h2h) continue;
+
+    const spreads = parseSpreads(
+      bookmaker.markets?.find((m) => m.key === "spreads"),
+      awayTeam,
+      homeTeam,
+      eventAway,
+      eventHome
+    );
+    const totals = parseTotals(bookmaker.markets?.find((m) => m.key === "totals"));
+
+    const odds: GameOdds = {
+      awayMoneyline: h2h.away,
+      homeMoneyline: h2h.home,
+      bookmaker: bookmaker.title ?? null,
+      awayRunLinePoint: spreads?.awayRunLinePoint ?? null,
+      awayRunLinePrice: spreads?.awayRunLinePrice ?? null,
+      homeRunLinePoint: spreads?.homeRunLinePoint ?? null,
+      homeRunLinePrice: spreads?.homeRunLinePrice ?? null,
+      point: totals?.point ?? null,
+      overPrice: totals?.overPrice ?? null,
+      underPrice: totals?.underPrice ?? null,
+    };
+
+    if (spreads) return odds;
+
+    if (!bestPartial) bestPartial = odds;
+  }
+
+  return bestPartial ?? EMPTY_GAME_ODDS;
+}
 
 export function extractRunLines(
   event: OddsApiEvent,
   awayTeam: string,
   homeTeam: string
 ): RunLineOdds {
-  for (const bookmaker of event.bookmakers ?? []) {
-    const market = bookmaker.markets?.find((m) => m.key === "spreads");
-    const outcomes = market?.outcomes ?? [];
-    const awayOutcome = outcomes.find((o) => teamsMatch(o.name, awayTeam));
-    const homeOutcome = outcomes.find((o) => teamsMatch(o.name, homeTeam));
-
-    if (
-      awayOutcome?.price != null &&
-      awayOutcome.point != null &&
-      homeOutcome?.price != null &&
-      homeOutcome.point != null
-    ) {
-      return {
-        awayRunLinePoint: awayOutcome.point,
-        awayRunLinePrice: awayOutcome.price,
-        homeRunLinePoint: homeOutcome.point,
-        homeRunLinePrice: homeOutcome.price,
-      };
-    }
-  }
-
+  const odds = extractGameOdds(event, awayTeam, homeTeam);
   return {
-    awayRunLinePoint: null,
-    awayRunLinePrice: null,
-    homeRunLinePoint: null,
-    homeRunLinePrice: null,
+    awayRunLinePoint: odds.awayRunLinePoint,
+    awayRunLinePrice: odds.awayRunLinePrice,
+    homeRunLinePoint: odds.homeRunLinePoint,
+    homeRunLinePrice: odds.homeRunLinePrice,
   };
 }
 
@@ -163,21 +259,23 @@ export function formatRunLineSpread(point: number): string {
   return point > 0 ? `+${point}` : `${point}`;
 }
 
-export function extractTotalLine(event: OddsApiEvent): TotalLine {
-  for (const bookmaker of event.bookmakers ?? []) {
-    const market = bookmaker.markets?.find((m) => m.key === "totals");
-    const outcomes = market?.outcomes ?? [];
-    const over = outcomes.find((o) => o.name === "Over");
-    const under = outcomes.find((o) => o.name === "Under");
-    const point = over?.point ?? under?.point ?? null;
+export function extractTotalLine(
+  event: OddsApiEvent,
+  awayTeam?: string,
+  homeTeam?: string
+): TotalLine {
+  if (awayTeam && homeTeam) {
+    const odds = extractGameOdds(event, awayTeam, homeTeam);
+    return {
+      point: odds.point,
+      overPrice: odds.overPrice,
+      underPrice: odds.underPrice,
+    };
+  }
 
-    if (point !== null && over?.price != null && under?.price != null) {
-      return {
-        point,
-        overPrice: over.price,
-        underPrice: under.price,
-      };
-    }
+  for (const bookmaker of event.bookmakers ?? []) {
+    const totals = parseTotals(bookmaker.markets?.find((m) => m.key === "totals"));
+    if (totals) return totals;
   }
 
   return { point: null, overPrice: null, underPrice: null };

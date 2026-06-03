@@ -16,9 +16,7 @@ import {
 import { parseAiPick, parseAiRunLine } from "@/lib/picks";
 import type { PickResult } from "@/lib/persistence/types";
 import {
-  extractMoneyline,
-  extractRunLines,
-  extractTotalLine,
+  extractGameOdds,
   fetchMlbMoneylineOdds,
   findOddsForMatchup,
   type OddsApiEvent,
@@ -182,19 +180,19 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     const { awayScore, homeScore } = extractGameScores(game);
     const { isFinal, awayWon } = extractGameResult(game);
     const oddsEvent = findOddsForMatchup(oddsEvents, away, home);
-    const moneyline = oddsEvent
-      ? extractMoneyline(oddsEvent, away, home)
-      : { awayMoneyline: null, homeMoneyline: null, bookmaker: null };
-    const totals = oddsEvent
-      ? extractTotalLine(oddsEvent)
-      : { point: null, overPrice: null, underPrice: null };
-    const runLines = oddsEvent
-      ? extractRunLines(oddsEvent, away, home)
+    const odds = oddsEvent
+      ? extractGameOdds(oddsEvent, away, home)
       : {
+          awayMoneyline: null,
+          homeMoneyline: null,
+          bookmaker: null,
           awayRunLinePoint: null,
           awayRunLinePrice: null,
           homeRunLinePoint: null,
           homeRunLinePrice: null,
+          point: null,
+          overPrice: null,
+          underPrice: null,
         };
 
     return {
@@ -209,16 +207,16 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       awayWon,
       awayScore,
       homeScore,
-      awayMoneyline: moneyline.awayMoneyline,
-      homeMoneyline: moneyline.homeMoneyline,
-      awayRunLinePoint: runLines.awayRunLinePoint,
-      awayRunLinePrice: runLines.awayRunLinePrice,
-      homeRunLinePoint: runLines.homeRunLinePoint,
-      homeRunLinePrice: runLines.homeRunLinePrice,
-      totalPoint: totals.point,
-      overPrice: totals.overPrice,
-      underPrice: totals.underPrice,
-      bookmaker: moneyline.bookmaker,
+      awayMoneyline: odds.awayMoneyline,
+      homeMoneyline: odds.homeMoneyline,
+      awayRunLinePoint: odds.awayRunLinePoint,
+      awayRunLinePrice: odds.awayRunLinePrice,
+      homeRunLinePoint: odds.homeRunLinePoint,
+      homeRunLinePrice: odds.homeRunLinePrice,
+      totalPoint: odds.point,
+      overPrice: odds.overPrice,
+      underPrice: odds.underPrice,
+      bookmaker: odds.bookmaker,
     };
   });
 

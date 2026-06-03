@@ -73,6 +73,8 @@ export function GameCard({
           label="AWAY"
           score={game.awayScore}
           odds={game.awayMoneyline}
+          runLinePoint={game.awayRunLinePoint}
+          runLinePrice={game.awayRunLinePrice}
           role={favorite === "away" ? "favorite" : favorite === "home" ? "underdog" : "neutral"}
         />
 
@@ -116,6 +118,8 @@ export function GameCard({
           label="HOME"
           score={game.homeScore}
           odds={game.homeMoneyline}
+          runLinePoint={game.homeRunLinePoint}
+          runLinePrice={game.homeRunLinePrice}
           role={favorite === "home" ? "favorite" : favorite === "away" ? "underdog" : "neutral"}
         />
       </div>
@@ -179,12 +183,16 @@ function TeamBlock({
   label,
   score,
   odds,
+  runLinePoint,
+  runLinePrice,
   role,
 }: {
   name: string;
   label: string;
   score: number | null;
   odds: number | null;
+  runLinePoint: number | null;
+  runLinePrice: number | null;
   role: "favorite" | "underdog" | "neutral";
 }) {
   const oddsColor =
@@ -217,6 +225,19 @@ function TeamBlock({
       >
         {formatAmericanOdds(odds)}
       </p>
+      {runLinePoint !== null ? (
+        <p className="mt-2 text-sm text-[#a8c4ae]">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-[#7a9a82]">
+            Run line
+          </span>
+          <span className="mt-0.5 block font-display text-2xl text-white/90 sm:text-3xl">
+            {formatRunLineSpread(runLinePoint)}{" "}
+            <span className="text-lg text-[#a8c4ae] sm:text-xl">
+              ({formatAmericanOdds(runLinePrice)})
+            </span>
+          </span>
+        </p>
+      ) : null}
     </div>
   );
 }
