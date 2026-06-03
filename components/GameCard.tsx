@@ -1,5 +1,9 @@
 import { ResultPill } from "@/components/RecordTracker";
-import { formatAmericanOdds, getFavoriteSide } from "@/lib/odds";
+import {
+  formatAmericanOdds,
+  formatRunLineSpread,
+  getFavoriteSide,
+} from "@/lib/odds";
 import type { EnrichedGame } from "@/lib/games";
 
 function formatScore(score: number | null): string {
@@ -130,6 +134,22 @@ export function GameCard({
             <p className="text-base font-medium leading-relaxed text-white sm:text-lg">
               {game.recommendation}
             </p>
+            {game.runLineRecommendation &&
+            game.runLineSpread !== null ? (
+              <div className="mt-4 border-t border-[#00e676]/20 pt-4">
+                <p className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#00e676]">
+                  AI Run Line — {game.runLineTeam}{" "}
+                  {formatRunLineSpread(game.runLineSpread)}{" "}
+                  {formatAmericanOdds(game.runLineOdds)}
+                  <span className="rounded bg-[#00e676]/20 px-1.5 py-0.5 text-[10px] text-[#00e676]">
+                    {game.runLineStatEdge}/10 edge
+                  </span>
+                </p>
+                <p className="text-sm leading-relaxed text-[#a8c4ae]">
+                  {game.runLineRecommendation}
+                </p>
+              </div>
+            ) : null}
             {game.totalsPick && game.totalsRecommendation ? (
               <div className="mt-4 border-t border-[#ffc107]/20 pt-4">
                 <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#ffc107]">

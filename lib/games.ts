@@ -13,10 +13,11 @@ import {
   extractLiveInning,
   fetchMlbSchedule,
 } from "@/lib/mlb";
-import { parseAiPick } from "@/lib/picks";
+import { parseAiPick, parseAiRunLine } from "@/lib/picks";
 import type { PickResult } from "@/lib/persistence/types";
 import {
   extractMoneyline,
+  extractRunLines,
   extractTotalLine,
   fetchMlbMoneylineOdds,
   findOddsForMatchup,
@@ -51,6 +52,10 @@ export type EnrichedGame = {
   homeScore: number | null;
   awayMoneyline: number | null;
   homeMoneyline: number | null;
+  awayRunLinePoint: number | null;
+  awayRunLinePrice: number | null;
+  homeRunLinePoint: number | null;
+  homeRunLinePrice: number | null;
   totalPoint: number | null;
   overPrice: number | null;
   underPrice: number | null;
@@ -61,6 +66,12 @@ export type EnrichedGame = {
   totalsPick: "over" | "under" | null;
   totalsStatEdge: number;
   moneylineStatEdge: number;
+  runLineTeam: string;
+  runLinePickSide: "away" | "home";
+  runLineSpread: number | null;
+  runLineOdds: number | null;
+  runLineRecommendation: string | null;
+  runLineStatEdge: number;
   pickTeam: string;
   pickSide: "away" | "home";
   pickOdds: number | null;
@@ -76,6 +87,12 @@ type GameShell = Omit<
   | "totalsPick"
   | "totalsStatEdge"
   | "moneylineStatEdge"
+  | "runLineTeam"
+  | "runLinePickSide"
+  | "runLineSpread"
+  | "runLineOdds"
+  | "runLineRecommendation"
+  | "runLineStatEdge"
   | "pickTeam"
   | "pickSide"
   | "pickOdds"
@@ -95,6 +112,12 @@ function buildPendingGame(
     totalsPick: null,
     totalsStatEdge: 0,
     moneylineStatEdge: 0,
+    runLineTeam: shell.away,
+    runLinePickSide: "away",
+    runLineSpread: null,
+    runLineOdds: null,
+    runLineRecommendation: null,
+    runLineStatEdge: 0,
     pickTeam: shell.away,
     pickSide: "away",
     pickOdds: null,
@@ -116,8 +139,8 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
 }> {
   const date = getTodayInPacific();
   const emptyTotals = {
-    bestBets: { wins: 0, losses: 0 },
-    aiPicks: { wins: 0, losses: 0 },
+    bestBets: { wins: 0, losses: 0, pushes: 0 },
+    aiPicks: { wins: 0, losses: 0, pushes: 0 },
   };
 
   logSlatePipeline("start", { slateDate: date });
@@ -165,6 +188,14 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     const totals = oddsEvent
       ? extractTotalLine(oddsEvent)
       : { point: null, overPrice: null, underPrice: null };
+    const runLines = oddsEvent
+      ? extractRunLines(oddsEvent, away, home)
+      : {
+          awayRunLinePoint: null,
+          awayRunLinePrice: null,
+          homeRunLinePoint: null,
+          homeRunLinePrice: null,
+        };
 
     return {
       gamePk: game.gamePk,
@@ -180,6 +211,10 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
       homeScore,
       awayMoneyline: moneyline.awayMoneyline,
       homeMoneyline: moneyline.homeMoneyline,
+      awayRunLinePoint: runLines.awayRunLinePoint,
+      awayRunLinePrice: runLines.awayRunLinePrice,
+      homeRunLinePoint: runLines.homeRunLinePoint,
+      homeRunLinePrice: runLines.homeRunLinePrice,
       totalPoint: totals.point,
       overPrice: totals.overPrice,
       underPrice: totals.underPrice,
@@ -221,6 +256,10 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
           startTime: g.startTime,
           awayMoneyline: g.awayMoneyline,
           homeMoneyline: g.homeMoneyline,
+          awayRunLinePoint: g.awayRunLinePoint,
+          awayRunLinePrice: g.awayRunLinePrice,
+          homeRunLinePoint: g.homeRunLinePoint,
+          homeRunLinePrice: g.homeRunLinePrice,
           totalPoint: g.totalPoint,
           overPrice: g.overPrice,
           underPrice: g.underPrice,
@@ -238,6 +277,12 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
             totalsPick: null,
             totalsStatEdge: 0,
             moneylineStatEdge: 0,
+            runLineTeam: shell.away,
+            runLinePickSide: "away" as const,
+            runLineSpread: null,
+            runLineOdds: null,
+            runLineRecommendation: null,
+            runLineStatEdge: 0,
             pickTeam: shell.away,
             pickSide: "away" as const,
             pickOdds: null,
@@ -258,6 +303,9 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
           ({
             moneylineRecommendation: "No recommendation available.",
             moneylineStatEdge: 0,
+            runLinePickSide: null,
+            runLineRecommendation: null,
+            runLineStatEdge: 0,
             totalsPick: null,
             totalsRecommendation: null,
             totalsStatEdge: 0,
@@ -271,6 +319,19 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
           recommendation: analysis.moneylineRecommendation,
         });
 
+        const runLine = parseAiRunLine({
+          away: shell.away,
+          home: shell.home,
+          awayMoneyline: shell.awayMoneyline,
+          homeMoneyline: shell.homeMoneyline,
+          runLineRecommendation: analysis.runLineRecommendation ?? "",
+          runLinePickSide: analysis.runLinePickSide,
+          awayRunLinePoint: shell.awayRunLinePoint,
+          awayRunLinePrice: shell.awayRunLinePrice,
+          homeRunLinePoint: shell.homeRunLinePoint,
+          homeRunLinePrice: shell.homeRunLinePrice,
+        });
+
         return {
           ...shell,
           picksAvailable:
@@ -280,6 +341,12 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
           totalsPick: analysis.totalsPick,
           totalsStatEdge: analysis.totalsStatEdge,
           moneylineStatEdge: analysis.moneylineStatEdge,
+          runLineTeam: runLine?.runLineTeam ?? shell.away,
+          runLinePickSide: runLine?.runLinePickSide ?? "away",
+          runLineSpread: runLine?.runLineSpread ?? null,
+          runLineOdds: runLine?.runLineOdds ?? null,
+          runLineRecommendation: analysis.runLineRecommendation,
+          runLineStatEdge: analysis.runLineStatEdge,
           pickTeam: pick.pickTeam,
           pickSide: pick.pickSide,
           pickOdds: pick.pickOdds,

@@ -26,10 +26,23 @@ function getDay(store: RecordsStore, date: string): DayRecords {
   return store.days[date];
 }
 
+function emptyTotals(): RecordTotals {
+  return { wins: 0, losses: 0, pushes: 0 };
+}
+
+function countResult(totals: RecordTotals, result: PickResult): void {
+  if (result === "win") totals.wins++;
+  else if (result === "loss") totals.losses++;
+  else totals.pushes++;
+}
+
 function settleMoneylinePick(
   pickSide: "away" | "home",
-  awayWon: boolean
+  awayScore: number,
+  homeScore: number
 ): PickResult {
+  if (awayScore === homeScore) return "push";
+  const awayWon = awayScore > homeScore;
   const pickWon = pickSide === "away" ? awayWon : !awayWon;
   return pickWon ? "win" : "loss";
 }
@@ -41,18 +54,18 @@ function settleTotalsPick(
   homeScore: number
 ): PickResult {
   const runs = awayScore + homeScore;
+  if (runs === totalPoint) return "push";
   if (totalsPick === "over") return runs > totalPoint ? "win" : "loss";
   return runs < totalPoint ? "win" : "loss";
 }
 
 function gradeBestBet(
   bet: BestBet,
-  awayWon: boolean,
   awayScore: number,
   homeScore: number
-): PickResult {
+): PickResult | null {
   if (bet.betType === "moneyline") {
-    return settleMoneylinePick(bet.pickSide, awayWon);
+    return settleMoneylinePick(bet.pickSide, awayScore, homeScore);
   }
   if (
     bet.betType === "total" &&
@@ -66,7 +79,7 @@ function gradeBestBet(
       homeScore
     );
   }
-  return "loss";
+  return null;
 }
 
 function isLegacyBestBetEntry(entry: {
@@ -76,13 +89,23 @@ function isLegacyBestBetEntry(entry: {
   return !entry.recordKind && Boolean(entry.wasBestBet);
 }
 
-/** Only count picks that were locked (have lockedAt). */
+function gameCanSettle(game: {
+  isFinal: boolean;
+  awayScore: number | null;
+  homeScore: number | null;
+}): boolean {
+  return (
+    game.isFinal && game.awayScore !== null && game.homeScore !== null
+  );
+}
+
+/** Only count picks that were locked (have lockedAt). Pushes do not affect W/L. */
 export function computeHistoricalTotals(store: RecordsStore): {
   bestBets: RecordTotals;
   aiPicks: RecordTotals;
 } {
-  const bestBets = { wins: 0, losses: 0 };
-  const aiPicks = { wins: 0, losses: 0 };
+  const bestBets = emptyTotals();
+  const aiPicks = emptyTotals();
 
   for (const day of Object.values(store.days)) {
     for (const entry of Object.values(day.settled)) {
@@ -90,19 +113,16 @@ export function computeHistoricalTotals(store: RecordsStore): {
 
       if (entry.recordKind === "bestbet") {
         const result = entry.bestBetResult ?? entry.aiResult;
-        if (result === "win") bestBets.wins++;
-        else bestBets.losses++;
+        countResult(bestBets, result);
         continue;
       }
 
       if (isLegacyBestBetEntry(entry)) {
-        if (entry.bestBetResult === "win") bestBets.wins++;
-        else if (entry.bestBetResult === "loss") bestBets.losses++;
+        countResult(bestBets, entry.bestBetResult ?? entry.aiResult);
       }
 
       if (entry.recordKind === "ai" || !entry.recordKind) {
-        if (entry.aiResult === "win") aiPicks.wins++;
-        else aiPicks.losses++;
+        countResult(aiPicks, entry.aiResult);
       }
     }
   }
@@ -115,7 +135,6 @@ type GameForScores = {
   away: string;
   home: string;
   isFinal: boolean;
-  awayWon: boolean | null;
   awayScore: number | null;
   homeScore: number | null;
 };
@@ -173,10 +192,14 @@ function settleAiPending(
   pending: NonNullable<DayRecords["pending"][string]>,
   game: GameForScores
 ): void {
-  if (!game.isFinal || game.awayWon === null) return;
+  if (!gameCanSettle(game)) return;
   if (day.settled[key]) return;
 
-  const aiResult = settleMoneylinePick(pending.pickSide, game.awayWon);
+  const aiResult = settleMoneylinePick(
+    pending.pickSide,
+    game.awayScore!,
+    game.homeScore!
+  );
 
   day.settled[key] = {
     gamePk: pending.gamePk,
@@ -189,8 +212,8 @@ function settleAiPending(
     lockedAt: pending.lockedAt,
     aiResult,
     bestBetResult: null,
-    awayScore: game.awayScore ?? 0,
-    homeScore: game.homeScore ?? 0,
+    awayScore: game.awayScore!,
+    homeScore: game.homeScore!,
     settledAt: new Date().toISOString(),
   };
 
@@ -204,15 +227,11 @@ function settleBestBetPending(
   game: GameForScores,
   bet: BestBet
 ): void {
-  if (!game.isFinal || game.awayWon === null) return;
+  if (!gameCanSettle(game)) return;
   if (day.settled[key]) return;
 
-  const result = gradeBestBet(
-    bet,
-    game.awayWon,
-    game.awayScore ?? 0,
-    game.homeScore ?? 0
-  );
+  const result = gradeBestBet(bet, game.awayScore!, game.homeScore!);
+  if (!result) return;
 
   day.settled[key] = {
     gamePk: pending.gamePk,
@@ -228,8 +247,8 @@ function settleBestBetPending(
     totalPoint: pending.totalPoint,
     aiResult: result,
     bestBetResult: result,
-    awayScore: game.awayScore ?? 0,
-    homeScore: game.homeScore ?? 0,
+    awayScore: game.awayScore!,
+    homeScore: game.homeScore!,
     settledAt: new Date().toISOString(),
   };
 
@@ -296,18 +315,16 @@ export function settlePendingFromScores(
       const saved = scores[sk];
       if (!saved?.isFinal) continue;
 
-      const awayWon = saved.awayScore > saved.homeScore;
-
       if (pending.recordKind === "bestbet") {
         const bet = betsByKey.get(key);
         if (!bet) continue;
 
         const result = gradeBestBet(
           bet,
-          awayWon,
           saved.awayScore,
           saved.homeScore
         );
+        if (!result) continue;
 
         day.settled[key] = {
           gamePk: pending.gamePk,
@@ -328,7 +345,11 @@ export function settlePendingFromScores(
           settledAt: new Date().toISOString(),
         };
       } else {
-        const aiResult = settleMoneylinePick(pending.pickSide, awayWon);
+        const aiResult = settleMoneylinePick(
+          pending.pickSide,
+          saved.awayScore,
+          saved.homeScore
+        );
 
         day.settled[key] = {
           gamePk: pending.gamePk,

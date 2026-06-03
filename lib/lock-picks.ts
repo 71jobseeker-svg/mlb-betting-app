@@ -34,6 +34,12 @@ function gameToLockedPick(
     totalsPick: game.totalsPick,
     totalsRecommendation: game.totalsRecommendation,
     totalsStatEdge: game.totalsStatEdge,
+    runLineTeam: game.runLineTeam,
+    runLinePickSide: game.runLinePickSide,
+    runLineSpread: game.runLineSpread ?? 0,
+    runLineOdds: game.runLineOdds,
+    runLineRecommendation: game.runLineRecommendation ?? "",
+    runLineStatEdge: game.runLineStatEdge,
     away: game.away,
     home: game.home,
   };
@@ -54,6 +60,13 @@ function mergeLockedIntoGame(
     totalsPick: lock.totalsPick,
     totalsRecommendation: lock.totalsRecommendation,
     totalsStatEdge: lock.totalsStatEdge,
+    runLineTeam: lock.runLineTeam ?? game.runLineTeam,
+    runLinePickSide: lock.runLinePickSide ?? game.runLinePickSide,
+    runLineSpread: lock.runLineSpread ?? game.runLineSpread,
+    runLineOdds: lock.runLineOdds ?? game.runLineOdds,
+    runLineRecommendation:
+      lock.runLineRecommendation ?? game.runLineRecommendation,
+    runLineStatEdge: lock.runLineStatEdge ?? game.runLineStatEdge,
   };
 }
 

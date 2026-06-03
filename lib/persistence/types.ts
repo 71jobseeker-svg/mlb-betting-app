@@ -1,10 +1,11 @@
 import type { BestBetType } from "@/lib/best-bets";
 
-export type PickResult = "win" | "loss";
+export type PickResult = "win" | "loss" | "push";
 
 export type RecordTotals = {
   wins: number;
   losses: number;
+  pushes: number;
 };
 
 export type RecordKind = "ai" | "bestbet";
@@ -69,6 +70,12 @@ export type LockedGamePick = {
   totalsPick: "over" | "under" | null;
   totalsRecommendation: string | null;
   totalsStatEdge: number;
+  runLineTeam: string;
+  runLinePickSide: "away" | "home";
+  runLineSpread: number;
+  runLineOdds: number | null;
+  runLineRecommendation: string;
+  runLineStatEdge: number;
   away: string;
   home: string;
 };

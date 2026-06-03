@@ -1,4 +1,5 @@
-import { parseAiPick } from "@/lib/picks";
+import { formatRunLineSpread } from "@/lib/odds";
+import { parseAiPick, parseAiRunLine } from "@/lib/picks";
 
 export type GameForAnalysis = {
   gamePk: number;
@@ -8,6 +9,10 @@ export type GameForAnalysis = {
   startTime: string;
   awayMoneyline: number | null;
   homeMoneyline: number | null;
+  awayRunLinePoint: number | null;
+  awayRunLinePrice: number | null;
+  homeRunLinePoint: number | null;
+  homeRunLinePrice: number | null;
   totalPoint: number | null;
   overPrice: number | null;
   underPrice: number | null;
@@ -17,6 +22,10 @@ export type GameAnalysis = {
   moneylineRecommendation: string;
   /** AI confidence / edge for moneyline (0–10). */
   moneylineStatEdge: number;
+  runLinePickSide: "away" | "home" | null;
+  runLineRecommendation: string | null;
+  /** AI confidence / edge for run line (0–10). */
+  runLineStatEdge: number;
   totalsPick: "over" | "under" | null;
   totalsRecommendation: string | null;
   /** AI statistical edge for O/U (0–10). Best bets use picks with edge >= 7. */
@@ -30,6 +39,9 @@ type AiResponseItem = {
   moneylineRecommendation?: string;
   recommendation?: string;
   moneylineStatEdge?: number;
+  runLinePickSide?: "away" | "home" | null;
+  runLineRecommendation?: string | null;
+  runLineStatEdge?: number;
   totalsPick?: "over" | "under" | null;
   totalsRecommendation?: string | null;
   totalsStatEdge?: number;
@@ -53,16 +65,18 @@ export async function generateBettingRecommendations(
 
   if (games.length === 0) return results;
 
-  const prompt = `You are an MLB betting analyst. For EVERY game provide a moneyline pick AND evaluate the total (over/under).
+  const prompt = `You are an MLB betting analyst. For EVERY game provide a moneyline pick, a run line pick (standard -1.5 / +1.5), AND evaluate the total (over/under).
 
 Rules:
 - Moneyline: ALWAYS pick one team. Never pass. One sentence, cite American odds.
 - moneylineStatEdge: integer 0-10 (your confidence/statistical edge on the ML pick; 10=maximum).
+- Run line: ALWAYS pick one side at the listed spread (-1.5 favorite lay or +1.5 underdog). runLinePickSide must be "away" or "home". One sentence citing the run line American odds.
+- runLineStatEdge: integer 0-10 (confidence on the run line pick).
 - Totals: Only recommend Over or Under if you see a real statistical edge (line value, pitching, weather, park factors). Otherwise set totalsPick to null and totalsStatEdge to 0.
 - totalsStatEdge: integer 0-10 (0=no edge, 7+=strong edge worth a best bet, 10=maximum confidence). Only use 7+ when you genuinely favor the total bet.
 - totalsRecommendation: one sentence explaining the O/U pick, or null if no edge.
 - Return ONLY valid JSON array:
-[{"gamePk":number,"moneylineRecommendation":"...","moneylineStatEdge":number,"totalsPick":"over"|"under"|null,"totalsRecommendation":"..."|null,"totalsStatEdge":number}]
+[{"gamePk":number,"moneylineRecommendation":"...","moneylineStatEdge":number,"runLinePickSide":"away"|"home","runLineRecommendation":"...","runLineStatEdge":number,"totalsPick":"over"|"under"|null,"totalsRecommendation":"..."|null,"totalsStatEdge":number}]
 
 Games:
 ${games
@@ -71,7 +85,8 @@ ${games
       g.totalPoint !== null
         ? `O/U ${g.totalPoint} (O ${formatOdds(g.overPrice)} / U ${formatOdds(g.underPrice)})`
         : "O/U N/A";
-    return `- gamePk ${g.gamePk}: ${g.away} @ ${g.home} | ${g.startTime} | ${g.status} | ML: ${g.away} ${formatOdds(g.awayMoneyline)}, ${g.home} ${formatOdds(g.homeMoneyline)} | ${ou}`;
+    const rl = formatRunLineForPrompt(g);
+    return `- gamePk ${g.gamePk}: ${g.away} @ ${g.home} | ${g.startTime} | ${g.status} | ML: ${g.away} ${formatOdds(g.awayMoneyline)}, ${g.home} ${formatOdds(g.homeMoneyline)} | ${rl} | ${ou}`;
   })
   .join("\n")}`;
 
@@ -138,6 +153,20 @@ ${games
   return results;
 }
 
+function formatRunLineForPrompt(game: GameForAnalysis): string {
+  const away =
+    game.awayRunLinePoint !== null
+      ? `${game.away} ${formatRunLineSpread(game.awayRunLinePoint)} ${formatOdds(game.awayRunLinePrice)}`
+      : null;
+  const home =
+    game.homeRunLinePoint !== null
+      ? `${game.home} ${formatRunLineSpread(game.homeRunLinePoint)} ${formatOdds(game.homeRunLinePrice)}`
+      : null;
+
+  if (away && home) return `RL: ${away}, ${home}`;
+  return "RL N/A";
+}
+
 function normalizeAnalysis(
   game: GameForAnalysis,
   mlText: string,
@@ -171,12 +200,73 @@ function normalizeAnalysis(
     totalsRecommendation = null;
   }
 
+  const runLine = normalizeRunLine(game, item);
+
   return {
     moneylineRecommendation,
     moneylineStatEdge,
+    runLinePickSide: runLine.runLinePickSide,
+    runLineRecommendation: runLine.runLineRecommendation,
+    runLineStatEdge: runLine.runLineStatEdge,
     totalsPick,
     totalsRecommendation,
     totalsStatEdge: totalsPick ? totalsStatEdge : 0,
+  };
+}
+
+function normalizeRunLine(
+  game: GameForAnalysis,
+  item: AiResponseItem
+): {
+  runLinePickSide: "away" | "home" | null;
+  runLineRecommendation: string | null;
+  runLineStatEdge: number;
+} {
+  const runLineStatEdge = clampEdge(item.runLineStatEdge ?? 0);
+  let runLinePickSide: "away" | "home" | null = null;
+  if (item.runLinePickSide === "away" || item.runLinePickSide === "home") {
+    runLinePickSide = item.runLinePickSide;
+  }
+
+  let runLineRecommendation = item.runLineRecommendation?.trim() || null;
+  if (runLineRecommendation && PASS_PATTERN.test(runLineRecommendation)) {
+    runLineRecommendation = null;
+    runLinePickSide = null;
+  }
+
+  const parsed = parseAiRunLine({
+    away: game.away,
+    home: game.home,
+    awayMoneyline: game.awayMoneyline,
+    homeMoneyline: game.homeMoneyline,
+    runLineRecommendation: runLineRecommendation ?? "",
+    runLinePickSide,
+    awayRunLinePoint: game.awayRunLinePoint,
+    awayRunLinePrice: game.awayRunLinePrice,
+    homeRunLinePoint: game.homeRunLinePoint,
+    homeRunLinePrice: game.homeRunLinePrice,
+  });
+
+  if (!parsed) {
+    return {
+      runLinePickSide: null,
+      runLineRecommendation: null,
+      runLineStatEdge: 0,
+    };
+  }
+
+  if (!runLinePickSide) {
+    runLinePickSide = parsed.runLinePickSide;
+  }
+
+  if (!runLineRecommendation) {
+    runLineRecommendation = `Take ${parsed.runLineTeam} ${formatRunLineSpread(parsed.runLineSpread)} (${formatOdds(parsed.runLineOdds)}) — ${runLineStatEdge}/10 run line edge.`;
+  }
+
+  return {
+    runLinePickSide,
+    runLineRecommendation,
+    runLineStatEdge,
   };
 }
 
@@ -206,10 +296,47 @@ function fallbackMoneyline(game: GameForAnalysis): string {
   return `Bet ${pick.pickTeam} ML ${formatOdds(pick.pickOdds)} — backing the market favorite.`;
 }
 
+function fallbackRunLine(game: GameForAnalysis): GameAnalysis["runLineRecommendation"] {
+  const parsed = parseAiRunLine({
+    away: game.away,
+    home: game.home,
+    awayMoneyline: game.awayMoneyline,
+    homeMoneyline: game.homeMoneyline,
+    runLineRecommendation: "",
+    awayRunLinePoint: game.awayRunLinePoint,
+    awayRunLinePrice: game.awayRunLinePrice,
+    homeRunLinePoint: game.homeRunLinePoint,
+    homeRunLinePrice: game.homeRunLinePrice,
+  });
+
+  if (!parsed) return null;
+
+  return `Bet ${parsed.runLineTeam} ${formatRunLineSpread(parsed.runLineSpread)} ${formatOdds(parsed.runLineOdds)} — standard run line.`;
+}
+
 function fallbackAnalysis(game: GameForAnalysis): GameAnalysis {
+  const runLineRecommendation = fallbackRunLine(game);
+  const parsed = runLineRecommendation
+    ? parseAiRunLine({
+        away: game.away,
+        home: game.home,
+        awayMoneyline: game.awayMoneyline,
+        homeMoneyline: game.homeMoneyline,
+        runLineRecommendation,
+        awayRunLinePoint: game.awayRunLinePoint,
+        awayRunLinePrice: game.awayRunLinePrice,
+        homeRunLinePoint: game.homeRunLinePoint,
+        homeRunLinePrice: game.homeRunLinePrice,
+      })
+    : null;
+
   return {
     moneylineRecommendation: fallbackMoneyline(game),
-    moneylineStatEdge: game.awayMoneyline !== null && game.homeMoneyline !== null ? 5 : 0,
+    moneylineStatEdge:
+      game.awayMoneyline !== null && game.homeMoneyline !== null ? 5 : 0,
+    runLinePickSide: parsed?.runLinePickSide ?? null,
+    runLineRecommendation,
+    runLineStatEdge: parsed ? 5 : 0,
     totalsPick: null,
     totalsRecommendation: null,
     totalsStatEdge: 0,

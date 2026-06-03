@@ -13,7 +13,7 @@ export type BestBet = EnrichedGame & {
   /** Set when best bets are locked for the slate day */
   lockedAt?: string;
   /** Graded from locked snapshot after final */
-  bestBetResult?: "win" | "loss" | null;
+  bestBetResult?: "win" | "loss" | "push" | null;
 };
 
 const MIN_TOTALS_EDGE = 7;

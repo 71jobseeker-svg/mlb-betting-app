@@ -35,7 +35,7 @@ export async function fetchMlbMoneylineOdds(): Promise<OddsApiEvent[]> {
     const url = new URL(`${ODDS_API_BASE}/sports/baseball_mlb/odds`);
     url.searchParams.set("apiKey", apiKey);
     url.searchParams.set("regions", "us");
-    url.searchParams.set("markets", "h2h,totals");
+    url.searchParams.set("markets", "h2h,totals,spreads");
     url.searchParams.set("oddsFormat", "american");
 
     const res = await fetch(url.toString(), { cache: "no-store" });
@@ -117,6 +117,51 @@ export type TotalLine = {
   overPrice: number | null;
   underPrice: number | null;
 };
+
+export type RunLineOdds = {
+  awayRunLinePoint: number | null;
+  awayRunLinePrice: number | null;
+  homeRunLinePoint: number | null;
+  homeRunLinePrice: number | null;
+};
+
+export function extractRunLines(
+  event: OddsApiEvent,
+  awayTeam: string,
+  homeTeam: string
+): RunLineOdds {
+  for (const bookmaker of event.bookmakers ?? []) {
+    const market = bookmaker.markets?.find((m) => m.key === "spreads");
+    const outcomes = market?.outcomes ?? [];
+    const awayOutcome = outcomes.find((o) => teamsMatch(o.name, awayTeam));
+    const homeOutcome = outcomes.find((o) => teamsMatch(o.name, homeTeam));
+
+    if (
+      awayOutcome?.price != null &&
+      awayOutcome.point != null &&
+      homeOutcome?.price != null &&
+      homeOutcome.point != null
+    ) {
+      return {
+        awayRunLinePoint: awayOutcome.point,
+        awayRunLinePrice: awayOutcome.price,
+        homeRunLinePoint: homeOutcome.point,
+        homeRunLinePrice: homeOutcome.price,
+      };
+    }
+  }
+
+  return {
+    awayRunLinePoint: null,
+    awayRunLinePrice: null,
+    homeRunLinePoint: null,
+    homeRunLinePrice: null,
+  };
+}
+
+export function formatRunLineSpread(point: number): string {
+  return point > 0 ? `+${point}` : `${point}`;
+}
 
 export function extractTotalLine(event: OddsApiEvent): TotalLine {
   for (const bookmaker of event.bookmakers ?? []) {

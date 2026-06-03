@@ -1,4 +1,4 @@
-import type { RecordTotals } from "@/lib/persistence/types";
+import type { PickResult, RecordTotals } from "@/lib/persistence/types";
 
 function RecordBadge({
   label,
@@ -9,9 +9,10 @@ function RecordBadge({
   totals: RecordTotals;
   accent: "green" | "gold";
 }) {
-  const total = totals.wins + totals.losses;
+  const decided = totals.wins + totals.losses;
   const pct =
-    total > 0 ? Math.round((totals.wins / total) * 1000) / 10 : 0;
+    decided > 0 ? Math.round((totals.wins / decided) * 1000) / 10 : 0;
+  const settled = decided + totals.pushes;
 
   const border =
     accent === "green" ? "border-[#00e676]/40" : "border-[#ffc107]/40";
@@ -30,7 +31,15 @@ function RecordBadge({
         <span className="text-red-400">{totals.losses}</span>
       </p>
       <p className="text-xs text-[#7a9a82]">
-        {total} settled · {pct}% win rate
+        {decided} W/L
+        {totals.pushes > 0 ? (
+          <>
+            {" · "}
+            <span className="text-[#a8c4ae]">{totals.pushes} push</span>
+            {totals.pushes === 1 ? "" : "es"}
+          </>
+        ) : null}
+        {settled > 0 ? ` · ${pct}% win rate` : null}
       </p>
     </div>
   );
@@ -53,7 +62,15 @@ export function RecordTracker({
   );
 }
 
-export function ResultPill({ result }: { result: "win" | "loss" }) {
+export function ResultPill({ result }: { result: PickResult }) {
+  if (result === "push") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-[#7a9a82]/50 bg-[#7a9a82]/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-[#a8c4ae]">
+        ↔ Push
+      </span>
+    );
+  }
+
   const isWin = result === "win";
   return (
     <span

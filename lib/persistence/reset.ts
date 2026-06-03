@@ -17,8 +17,8 @@ import {
 import type { AppMeta } from "@/lib/persistence/types";
 
 const ZERO_TOTALS = {
-  bestBets: { wins: 0, losses: 0 },
-  aiPicks: { wins: 0, losses: 0 },
+  bestBets: { wins: 0, losses: 0, pushes: 0 },
+  aiPicks: { wins: 0, losses: 0, pushes: 0 },
 } as const;
 
 async function deleteKeysByPattern(
