@@ -6,6 +6,13 @@ export type ParsedPick = {
   pickOdds: number | null;
 };
 
+export type ParsedRunLinePick = {
+  runLineTeam: string;
+  runLinePickSide: "away" | "home";
+  runLineSpread: number;
+  runLineOdds: number | null;
+};
+
 function teamMatchesRecommendation(
   recommendation: string,
   teamName: string
@@ -66,4 +73,107 @@ export function parseAiPick(game: {
     pickSide: "home",
     pickOdds: game.homeMoneyline,
   };
+}
+
+export function parseAiRunLine(game: {
+  away: string;
+  home: string;
+  awayMoneyline: number | null;
+  homeMoneyline: number | null;
+  runLineRecommendation: string;
+  runLinePickSide?: "away" | "home" | null;
+  awayRunLinePoint: number | null;
+  awayRunLinePrice: number | null;
+  homeRunLinePoint: number | null;
+  homeRunLinePrice: number | null;
+}): ParsedRunLinePick | null {
+  const hasAwayLine =
+    game.awayRunLinePoint !== null && game.awayRunLinePrice !== null;
+  const hasHomeLine =
+    game.homeRunLinePoint !== null && game.homeRunLinePrice !== null;
+
+  if (!hasAwayLine && !hasHomeLine) return null;
+
+  if (game.runLinePickSide === "away" && hasAwayLine) {
+    return {
+      runLineTeam: game.away,
+      runLinePickSide: "away",
+      runLineSpread: game.awayRunLinePoint!,
+      runLineOdds: game.awayRunLinePrice,
+    };
+  }
+
+  if (game.runLinePickSide === "home" && hasHomeLine) {
+    return {
+      runLineTeam: game.home,
+      runLinePickSide: "home",
+      runLineSpread: game.homeRunLinePoint!,
+      runLineOdds: game.homeRunLinePrice,
+    };
+  }
+
+  const awayMatch = teamMatchesRecommendation(
+    game.runLineRecommendation,
+    game.away
+  );
+  const homeMatch = teamMatchesRecommendation(
+    game.runLineRecommendation,
+    game.home
+  );
+
+  if (awayMatch && !homeMatch && hasAwayLine) {
+    return {
+      runLineTeam: game.away,
+      runLinePickSide: "away",
+      runLineSpread: game.awayRunLinePoint!,
+      runLineOdds: game.awayRunLinePrice,
+    };
+  }
+
+  if (homeMatch && !awayMatch && hasHomeLine) {
+    return {
+      runLineTeam: game.home,
+      runLinePickSide: "home",
+      runLineSpread: game.homeRunLinePoint!,
+      runLineOdds: game.homeRunLinePrice,
+    };
+  }
+
+  const favorite = getFavoriteSide(game.awayMoneyline, game.homeMoneyline);
+  if (favorite === "away" && hasAwayLine) {
+    return {
+      runLineTeam: game.away,
+      runLinePickSide: "away",
+      runLineSpread: game.awayRunLinePoint!,
+      runLineOdds: game.awayRunLinePrice,
+    };
+  }
+  if (favorite === "home" && hasHomeLine) {
+    return {
+      runLineTeam: game.home,
+      runLinePickSide: "home",
+      runLineSpread: game.homeRunLinePoint!,
+      runLineOdds: game.homeRunLinePrice,
+    };
+  }
+
+  if (hasAwayLine) {
+    return {
+      runLineTeam: game.away,
+      runLinePickSide: "away",
+      runLineSpread: game.awayRunLinePoint!,
+      runLineOdds: game.awayRunLinePrice,
+    };
+  }
+
+  if (hasHomeLine) {
+    return {
+      runLineTeam: game.home,
+      runLinePickSide: "home",
+      runLineSpread: game.homeRunLinePoint!,
+      runLineOdds: game.homeRunLinePrice,
+    };
+  }
+
+  return null;
 }
