@@ -113,6 +113,10 @@ export async function applyLockedPicks(
  * Lock best bets only after 8am PT when at least one pickable game has odds.
  * Replaces invalid early locks (blank odds / pre-8am).
  */
+function lockedBestBetsIncludeTotals(bets: BestBet[]): boolean {
+  return bets.some((bet) => bet.betType === "total");
+}
+
 export async function applyLockedBestBets(
   slateDate: string,
   suggested: BestBet[],
@@ -121,7 +125,11 @@ export async function applyLockedBestBets(
   const existing = await loadLockedBestBets(slateDate);
 
   if (existing && existing.length > 0 && isLockedBestBetsValid(existing)) {
-    return existing;
+    const suggestedHasTotals = lockedBestBetsIncludeTotals(suggested);
+    const existingHasTotals = lockedBestBetsIncludeTotals(existing);
+    if (!suggestedHasTotals || existingHasTotals) {
+      return existing;
+    }
   }
 
   if (!canGenerateAndLockPicks(games) || suggested.length === 0) {

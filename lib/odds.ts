@@ -190,7 +190,50 @@ const EMPTY_GAME_ODDS: GameOdds = {
   underPrice: null,
 };
 
-/** Pull h2h, spreads, and totals from the same bookmaker when possible. */
+function oddsCompleteness(
+  spreads: RunLineOdds | null,
+  totals: TotalLine | null
+): number {
+  let score = 1;
+  if (totals) score += 4;
+  if (spreads) score += 2;
+  return score;
+}
+
+function findTotalsFromAnyBookmaker(
+  event: OddsApiEvent
+): TotalLine | null {
+  for (const bookmaker of event.bookmakers ?? []) {
+    const totals = parseTotals(
+      bookmaker.markets?.find((m) => m.key === "totals")
+    );
+    if (totals) return totals;
+  }
+  return null;
+}
+
+function findSpreadsFromAnyBookmaker(
+  event: OddsApiEvent,
+  awayTeam: string,
+  homeTeam: string
+): RunLineOdds | null {
+  const eventAway = event.away_team;
+  const eventHome = event.home_team;
+
+  for (const bookmaker of event.bookmakers ?? []) {
+    const spreads = parseSpreads(
+      bookmaker.markets?.find((m) => m.key === "spreads"),
+      awayTeam,
+      homeTeam,
+      eventAway,
+      eventHome
+    );
+    if (spreads) return spreads;
+  }
+  return null;
+}
+
+/** Prefer one bookmaker with all markets; backfill totals/spreads independently when needed. */
 export function extractGameOdds(
   event: OddsApiEvent,
   awayTeam: string,
@@ -199,7 +242,8 @@ export function extractGameOdds(
   const eventAway = event.away_team;
   const eventHome = event.home_team;
 
-  let bestPartial: GameOdds | null = null;
+  let best: GameOdds | null = null;
+  let bestScore = -1;
 
   for (const bookmaker of event.bookmakers ?? []) {
     const h2h = parseH2h(
@@ -233,12 +277,43 @@ export function extractGameOdds(
       underPrice: totals?.underPrice ?? null,
     };
 
-    if (spreads) return odds;
+    const score = oddsCompleteness(spreads, totals);
+    if (score > bestScore) {
+      best = odds;
+      bestScore = score;
+    }
 
-    if (!bestPartial) bestPartial = odds;
+    if (spreads && totals) return odds;
   }
 
-  return bestPartial ?? EMPTY_GAME_ODDS;
+  if (!best) return EMPTY_GAME_ODDS;
+
+  if (best.point === null) {
+    const totals = findTotalsFromAnyBookmaker(event);
+    if (totals) {
+      best = {
+        ...best,
+        point: totals.point,
+        overPrice: totals.overPrice,
+        underPrice: totals.underPrice,
+      };
+    }
+  }
+
+  if (best.awayRunLinePoint === null) {
+    const spreads = findSpreadsFromAnyBookmaker(event, awayTeam, homeTeam);
+    if (spreads) {
+      best = {
+        ...best,
+        awayRunLinePoint: spreads.awayRunLinePoint,
+        awayRunLinePrice: spreads.awayRunLinePrice,
+        homeRunLinePoint: spreads.homeRunLinePoint,
+        homeRunLinePrice: spreads.homeRunLinePrice,
+      };
+    }
+  }
+
+  return best;
 }
 
 export function extractRunLines(

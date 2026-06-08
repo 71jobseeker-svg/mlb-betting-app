@@ -62,22 +62,21 @@ function settleTotalsPick(
 function gradeBestBet(
   bet: BestBet,
   awayScore: number,
-  homeScore: number
+  homeScore: number,
+  totalsSnapshot?: {
+    totalsPick?: "over" | "under" | null;
+    totalPoint?: number | null;
+  }
 ): PickResult | null {
   if (bet.betType === "moneyline") {
     return settleMoneylinePick(bet.pickSide, awayScore, homeScore);
   }
-  if (
-    bet.betType === "total" &&
-    bet.totalsPick &&
-    bet.totalPoint !== null
-  ) {
-    return settleTotalsPick(
-      bet.totalsPick,
-      bet.totalPoint,
-      awayScore,
-      homeScore
-    );
+
+  const totalsPick = bet.totalsPick ?? totalsSnapshot?.totalsPick ?? null;
+  const totalPoint = bet.totalPoint ?? totalsSnapshot?.totalPoint ?? null;
+
+  if (bet.betType === "total" && totalsPick && totalPoint !== null) {
+    return settleTotalsPick(totalsPick, totalPoint, awayScore, homeScore);
   }
   return null;
 }
@@ -230,7 +229,10 @@ function settleBestBetPending(
   if (!gameCanSettle(game)) return;
   if (day.settled[key]) return;
 
-  const result = gradeBestBet(bet, game.awayScore!, game.homeScore!);
+  const result = gradeBestBet(bet, game.awayScore!, game.homeScore!, {
+    totalsPick: pending.totalsPick,
+    totalPoint: pending.totalPoint,
+  });
   if (!result) return;
 
   day.settled[key] = {
@@ -319,11 +321,10 @@ export function settlePendingFromScores(
         const bet = betsByKey.get(key);
         if (!bet) continue;
 
-        const result = gradeBestBet(
-          bet,
-          saved.awayScore,
-          saved.homeScore
-        );
+        const result = gradeBestBet(bet, saved.awayScore, saved.homeScore, {
+          totalsPick: pending.totalsPick,
+          totalPoint: pending.totalPoint,
+        });
         if (!result) continue;
 
         day.settled[key] = {

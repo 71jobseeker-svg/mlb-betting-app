@@ -153,7 +153,13 @@ export function isLockedBestBetsValid(bets: BestBet[]): boolean {
     }
 
     if (bet.betType === "total") {
-      if (bet.betOdds === null || bet.totalPoint === null) return false;
+      if (
+        bet.betOdds === null ||
+        bet.totalPoint === null ||
+        !bet.totalsPick
+      ) {
+        return false;
+      }
     }
 
     if (bet.statScore <= 0) return false;
