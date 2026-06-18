@@ -133,7 +133,7 @@ export function BestBetsPanel({
           </h2>
         </div>
         <p className="max-w-xs text-right text-xs text-[#a8c4ae]">
-          Highest AI edge across the slate (ML confidence + O/U 7+), locked at
+          Top O/U edge, top ML favorite, and top plus-money dog — locked at
           generation
         </p>
       </div>
