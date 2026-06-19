@@ -44,7 +44,12 @@ function BestBetCard({
       </span>
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-block rounded-full bg-[#ffc107] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0a120e]">
-          #{bet.rank} {bet.betType === "total" ? "O/U" : "ML"}
+              #{bet.rank}{" "}
+              {bet.betCategory === "total"
+                ? "O/U"
+                : bet.betCategory === "underdog"
+                  ? "DOG"
+                  : "FAV"}
         </span>
         {bet.bestBetResult ? (
           <ResultPill result={bet.bestBetResult} />

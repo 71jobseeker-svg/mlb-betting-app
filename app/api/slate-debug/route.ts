@@ -44,6 +44,7 @@ export async function GET() {
       bestBetTypes: result.bestBets.map((bet) => ({
         rank: bet.rank,
         betType: bet.betType,
+        betCategory: bet.betCategory,
         betLabel: bet.betLabel,
         gamePk: bet.gamePk,
       })),

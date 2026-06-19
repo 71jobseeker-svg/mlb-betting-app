@@ -137,8 +137,22 @@ export function isValidLockedGamePick(lock: LockedGamePick): boolean {
 
 export const EXPECTED_BEST_BETS_COUNT = 3;
 
-export function isLockedBestBetsValid(bets: BestBet[]): boolean {
+function hasExpectedBestBetCategories(bets: BestBet[]): boolean {
   if (bets.length !== EXPECTED_BEST_BETS_COUNT) return false;
+
+  const totals = bets.filter((bet) => bet.betCategory === "total");
+  const favorites = bets.filter((bet) => bet.betCategory === "favorite");
+  const underdogs = bets.filter((bet) => bet.betCategory === "underdog");
+
+  return (
+    totals.length === 1 &&
+    favorites.length === 1 &&
+    underdogs.length === 1
+  );
+}
+
+export function isLockedBestBetsValid(bets: BestBet[]): boolean {
+  if (!hasExpectedBestBetCategories(bets)) return false;
 
   for (const bet of bets) {
     if (!bet.lockedAt) return false;
@@ -152,6 +166,8 @@ export function isLockedBestBetsValid(bets: BestBet[]): boolean {
     if (bet.betType === "moneyline") {
       if (bet.betOdds === null) return false;
       if (bet.awayMoneyline === null || bet.homeMoneyline === null) return false;
+      if (bet.betCategory === "favorite" && bet.betOdds >= 0) return false;
+      if (bet.betCategory === "underdog" && bet.betOdds <= 0) return false;
     }
 
     if (bet.betType === "total") {
