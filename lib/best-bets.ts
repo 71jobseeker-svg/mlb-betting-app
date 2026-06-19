@@ -1,5 +1,6 @@
 import type { EnrichedGame } from "@/lib/games";
 import { formatAmericanOdds } from "@/lib/odds";
+import { EXPECTED_BEST_BETS_COUNT } from "@/lib/slate-picks-ready";
 
 export type BestBetType = "moneyline" | "total";
 
@@ -52,13 +53,8 @@ function compareByEdgeThenGamePk<
   return b.game.gamePk - a.game.gamePk;
 }
 
-function buildTotalCandidate(
-  game: EnrichedGame,
-  requireMinEdge: boolean
-): TotalCandidate | null {
+function buildTotalCandidate(game: EnrichedGame): TotalCandidate | null {
   if (!game.totalsPick || game.totalPoint === null) return null;
-  if (requireMinEdge && game.totalsStatEdge < MIN_TOTALS_EDGE) return null;
-  if (!requireMinEdge && game.totalsStatEdge <= 0) return null;
 
   const betOdds =
     game.totalsPick === "over" ? game.overPrice : game.underPrice;
@@ -72,7 +68,7 @@ function buildTotalCandidate(
     betLabel,
     betOdds,
     edge,
-    score: edge / 10,
+    score: Math.max(edge, 1) / 10,
     reason:
       game.totalsRecommendation ??
       `AI sees ${edge}/10 statistical edge on the ${betLabel} (${formatAmericanOdds(betOdds)}).`,
@@ -87,20 +83,20 @@ function buildFavoriteCandidate(game: EnrichedGame): MoneylineCandidate | null {
     pickOdds === null ||
     pickOdds >= 0 ||
     awayMoneyline === null ||
-    homeMoneyline === null
+    homeMoneyline === null ||
+    !game.picksAvailable
   ) {
     return null;
   }
 
   const edge = moneylineStatEdge;
-  if (edge <= 0) return null;
 
   return {
     game,
     betLabel: pickTeam,
     betOdds: pickOdds,
     edge,
-    score: edge / 10,
+    score: Math.max(edge, 1) / 10,
     reason: `AI ML favorite: ${pickTeam} ${formatLine(pickOdds)} — ${edge}/10 edge.`,
   };
 }
@@ -119,16 +115,15 @@ function buildUnderdogCandidate(game: EnrichedGame): MoneylineCandidate | null {
     pickOdds === null ||
     pickOdds <= 0 ||
     awayMoneyline === null ||
-    homeMoneyline === null
+    homeMoneyline === null ||
+    !game.picksAvailable
   ) {
     return null;
   }
 
   const edge = moneylineStatEdge;
-  if (edge <= 0) return null;
-
   const value = underdogValueScore(pickOdds);
-  const score = (edge / 10) * 0.55 + value * 0.45;
+  const score = (Math.max(edge, 1) / 10) * 0.55 + value * 0.45;
 
   return {
     game,
@@ -165,22 +160,38 @@ function candidateToBestBet(
   };
 }
 
+function pickBestTotal(
+  totalsStrong: TotalCandidate[],
+  totalsAll: TotalCandidate[],
+  excludeGamePk?: number
+): TotalCandidate | undefined {
+  const matches = (candidate: TotalCandidate) =>
+    excludeGamePk === undefined || candidate.game.gamePk !== excludeGamePk;
+
+  return (
+    totalsStrong.find(matches) ??
+    totalsAll.find(matches)
+  );
+}
+
 /**
  * Daily best bets (always 3 when the slate supports it):
- * 1. Highest-edge O/U (7+ edge)
+ * 1. Highest-edge O/U (prefer 7+ edge)
  * 2. Highest-edge ML favorite (negative moneyline only)
  * 3. Best plus-money underdog, or 2nd-best O/U when no dog exists
  */
-export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
-  const totalsPrimary = games
-    .map((game) => buildTotalCandidate(game, true))
+export function selectBestBets(
+  games: EnrichedGame[],
+  limit = EXPECTED_BEST_BETS_COUNT
+): BestBet[] {
+  const totalsAll = games
+    .map((game) => buildTotalCandidate(game))
     .filter((candidate): candidate is TotalCandidate => candidate !== null)
     .sort(compareByEdgeThenGamePk);
 
-  const totalsFallback = games
-    .map((game) => buildTotalCandidate(game, false))
-    .filter((candidate): candidate is TotalCandidate => candidate !== null)
-    .sort(compareByEdgeThenGamePk);
+  const totalsStrong = totalsAll.filter(
+    (candidate) => candidate.edge >= MIN_TOTALS_EDGE
+  );
 
   const favorites = games
     .map((game) => buildFavoriteCandidate(game))
@@ -194,7 +205,7 @@ export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
 
   const picks: BestBet[] = [];
 
-  const bestTotal = totalsPrimary[0] ?? totalsFallback[0];
+  const bestTotal = pickBestTotal(totalsStrong, totalsAll);
   if (bestTotal) {
     picks.push(candidateToBestBet(bestTotal, "total", picks.length + 1));
   }
@@ -208,15 +219,11 @@ export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
   if (bestUnderdog) {
     picks.push(candidateToBestBet(bestUnderdog, "moneyline", picks.length + 1));
   } else {
-    const firstTotalGamePk = bestTotal?.game.gamePk;
-    const secondTotal =
-      totalsPrimary.find(
-        (candidate) => candidate.game.gamePk !== firstTotalGamePk
-      ) ??
-      totalsFallback.find(
-        (candidate) => candidate.game.gamePk !== firstTotalGamePk
-      );
-
+    const secondTotal = pickBestTotal(
+      totalsStrong,
+      totalsAll,
+      bestTotal?.game.gamePk
+    );
     if (secondTotal) {
       picks.push(candidateToBestBet(secondTotal, "total", picks.length + 1));
     }
@@ -245,13 +252,11 @@ export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
 
     if (!picks.some((pick) => pick.betType === "total")) {
       const nextTotal =
-        totalsPrimary.find(
-          (candidate) => !usedTotalGamePks.has(candidate.game.gamePk)
-        ) ??
-        totalsFallback.find(
+        pickBestTotal(totalsStrong, totalsAll) ??
+        totalsAll.find(
           (candidate) => !usedTotalGamePks.has(candidate.game.gamePk)
         );
-      if (nextTotal) {
+      if (nextTotal && !usedTotalGamePks.has(nextTotal.game.gamePk)) {
         picks.push(candidateToBestBet(nextTotal, "total", picks.length + 1));
         continue;
       }
@@ -286,21 +291,26 @@ export function selectBestBets(games: EnrichedGame[], limit = 3): BestBet[] {
 
       const firstTotalGamePk = picks.find((pick) => pick.betType === "total")
         ?.gamePk;
-      const nextTotal =
-        totalsPrimary.find(
-          (candidate) =>
-            candidate.game.gamePk !== firstTotalGamePk &&
-            !usedTotalGamePks.has(candidate.game.gamePk)
-        ) ??
-        totalsFallback.find(
-          (candidate) =>
-            candidate.game.gamePk !== firstTotalGamePk &&
-            !usedTotalGamePks.has(candidate.game.gamePk)
-        );
-      if (nextTotal) {
+      const nextTotal = pickBestTotal(
+        totalsStrong,
+        totalsAll,
+        firstTotalGamePk
+      );
+      if (
+        nextTotal &&
+        !usedTotalGamePks.has(nextTotal.game.gamePk)
+      ) {
         picks.push(candidateToBestBet(nextTotal, "total", picks.length + 1));
         continue;
       }
+    }
+
+    const nextFavorite = favorites.find(
+      (candidate) => !usedFavoriteGamePks.has(candidate.game.gamePk)
+    );
+    if (nextFavorite) {
+      picks.push(candidateToBestBet(nextFavorite, "moneyline", picks.length + 1));
+      continue;
     }
 
     break;

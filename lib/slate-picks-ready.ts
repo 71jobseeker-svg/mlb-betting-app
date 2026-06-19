@@ -135,8 +135,10 @@ export function isValidLockedGamePick(lock: LockedGamePick): boolean {
   return lock.pickOdds !== null;
 }
 
+export const EXPECTED_BEST_BETS_COUNT = 3;
+
 export function isLockedBestBetsValid(bets: BestBet[]): boolean {
-  if (!bets.length) return false;
+  if (bets.length !== EXPECTED_BEST_BETS_COUNT) return false;
 
   for (const bet of bets) {
     if (!bet.lockedAt) return false;

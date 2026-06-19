@@ -41,6 +41,12 @@ export async function GET() {
       picksStatus: result.picksStatus,
       picksMessage: result.picksMessage,
       lockedBestBets: result.bestBets.length,
+      bestBetTypes: result.bestBets.map((bet) => ({
+        rank: bet.rank,
+        betType: bet.betType,
+        betLabel: bet.betLabel,
+        gamePk: bet.gamePk,
+      })),
       lockedGamePicks: result.games.filter((g) => g.picksAvailable).length,
       totals: result.totals,
     });
