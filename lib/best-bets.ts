@@ -20,8 +20,6 @@ export type BestBet = EnrichedGame & {
   bestBetResult?: "win" | "loss" | "push" | null;
 };
 
-const MIN_TOTALS_EDGE = 7;
-
 type TotalCandidate = {
   game: EnrichedGame;
   betLabel: string;
@@ -51,87 +49,13 @@ function compareByEdgeThenGamePk<
   return b.game.gamePk - a.game.gamePk;
 }
 
-function buildTotalCandidate(game: EnrichedGame): TotalCandidate | null {
-  if (!game.totalsPick || game.totalPoint === null) return null;
-
-  const betOdds =
-    game.totalsPick === "over" ? game.overPrice : game.underPrice;
-  if (betOdds === null) return null;
-
-  const betLabel = `${game.totalsPick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
-  const edge = game.totalsStatEdge;
-
-  return {
-    game,
-    betLabel,
-    betOdds,
-    edge,
-    score: Math.max(edge, 1) / 10,
-    reason:
-      game.totalsRecommendation ??
-      `AI sees ${edge}/10 statistical edge on the ${betLabel} (${formatAmericanOdds(betOdds)}).`,
-  };
-}
-
-function buildFavoriteCandidate(game: EnrichedGame): MoneylineCandidate | null {
-  const { pickTeam, pickOdds, awayMoneyline, homeMoneyline, moneylineStatEdge } =
-    game;
-
-  if (
-    pickOdds === null ||
-    pickOdds >= 0 ||
-    awayMoneyline === null ||
-    homeMoneyline === null ||
-    !game.picksAvailable
-  ) {
-    return null;
-  }
-
-  const edge = moneylineStatEdge;
-
-  return {
-    game,
-    betLabel: pickTeam,
-    betOdds: pickOdds,
-    edge,
-    score: Math.max(edge, 1) / 10,
-    reason: `AI ML favorite: ${pickTeam} ${formatLine(pickOdds)} — ${edge}/10 edge.`,
-  };
-}
-
-function buildUnderdogCandidate(game: EnrichedGame): MoneylineCandidate | null {
-  const { pickTeam, pickOdds, awayMoneyline, homeMoneyline, moneylineStatEdge } =
-    game;
-
-  if (
-    pickOdds === null ||
-    pickOdds <= 0 ||
-    awayMoneyline === null ||
-    homeMoneyline === null ||
-    !game.picksAvailable
-  ) {
-    return null;
-  }
-
-  const edge = moneylineStatEdge;
-
-  return {
-    game,
-    betLabel: pickTeam,
-    betOdds: pickOdds,
-    edge,
-    score: Math.max(edge, 1) / 10,
-    reason: `AI plus-money dog: ${pickTeam} ${formatLine(pickOdds)} — ${edge}/10 edge.`,
-  };
-}
-
 function candidateToBestBet(
   candidate: TotalCandidate | MoneylineCandidate,
   betType: BestBetType,
   betCategory: BestBetCategory,
   rank: number
 ): BestBet {
-  return {
+  const base: BestBet = {
     ...candidate.game,
     rank,
     betType,
@@ -141,14 +65,133 @@ function candidateToBestBet(
     statReason: candidate.reason,
     statScore: candidate.score,
   };
+
+  if (betType === "moneyline") {
+    const side =
+      candidate.betLabel === candidate.game.away
+        ? ("away" as const)
+        : ("home" as const);
+    return {
+      ...base,
+      pickTeam: candidate.betLabel,
+      pickSide: side,
+      pickOdds: candidate.betOdds,
+    };
+  }
+
+  return base;
 }
 
-function pickHighestConfidenceTotal(
-  candidates: TotalCandidate[]
-): TotalCandidate | undefined {
-  const strong = candidates.filter((c) => c.edge >= MIN_TOTALS_EDGE);
-  const pool = strong.length > 0 ? strong : candidates;
-  return pool.sort(compareByEdgeThenGamePk)[0];
+/** O/U bucket: any game with a totals pick, line, and price. */
+function collectTotalCandidates(games: EnrichedGame[]): TotalCandidate[] {
+  const bucket: TotalCandidate[] = [];
+
+  for (const game of games) {
+    if (!game.totalsPick || game.totalPoint === null) continue;
+
+    const betOdds =
+      game.totalsPick === "over" ? game.overPrice : game.underPrice;
+    if (betOdds === null) continue;
+
+    const betLabel = `${game.totalsPick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
+    const edge = game.totalsStatEdge;
+
+    bucket.push({
+      game,
+      betLabel,
+      betOdds,
+      edge,
+      score: Math.max(edge, 1) / 10,
+      reason:
+        game.totalsRecommendation ??
+        `AI sees ${edge}/10 statistical edge on the ${betLabel} (${formatAmericanOdds(betOdds)}).`,
+    });
+  }
+
+  return bucket.sort(compareByEdgeThenGamePk);
+}
+
+/**
+ * Favorite bucket: market favorite side (negative ML) on each game.
+ * Uses full ML edge when the AI pick aligns with that favorite side.
+ */
+function collectFavoriteCandidates(games: EnrichedGame[]): MoneylineCandidate[] {
+  const bucket: MoneylineCandidate[] = [];
+
+  for (const game of games) {
+    const { away, home, awayMoneyline, homeMoneyline, pickSide, moneylineStatEdge } =
+      game;
+
+    if (awayMoneyline === null || homeMoneyline === null) continue;
+
+    const awayIsFavorite = awayMoneyline < homeMoneyline;
+    const favTeam = awayIsFavorite ? away : home;
+    const favOdds = awayIsFavorite ? awayMoneyline : homeMoneyline;
+    const favSide = awayIsFavorite ? ("away" as const) : ("home" as const);
+
+    if (favOdds >= 0) continue;
+
+    const aiOnFavorite = pickSide === favSide;
+    const edge = aiOnFavorite ? moneylineStatEdge : 0;
+
+    bucket.push({
+      game,
+      betLabel: favTeam,
+      betOdds: favOdds,
+      edge,
+      score: Math.max(edge, 1) / 10,
+      reason: aiOnFavorite
+        ? `AI ML favorite: ${favTeam} ${formatLine(favOdds)} — ${edge}/10 edge.`
+        : `Market favorite: ${favTeam} ${formatLine(favOdds)} — ${edge}/10 AI edge on this side.`,
+    });
+  }
+
+  return bucket.sort(compareByEdgeThenGamePk);
+}
+
+/**
+ * Underdog bucket: market underdog side (positive ML) on each game.
+ * Uses full ML edge when the AI pick aligns with that underdog side.
+ */
+function collectUnderdogCandidates(games: EnrichedGame[]): MoneylineCandidate[] {
+  const bucket: MoneylineCandidate[] = [];
+
+  for (const game of games) {
+    const { away, home, awayMoneyline, homeMoneyline, pickSide, moneylineStatEdge } =
+      game;
+
+    if (awayMoneyline === null || homeMoneyline === null) continue;
+
+    const awayIsUnderdog = awayMoneyline > homeMoneyline;
+    const dogTeam = awayIsUnderdog ? away : home;
+    const dogOdds = awayIsUnderdog ? awayMoneyline : homeMoneyline;
+    const dogSide = awayIsUnderdog ? ("away" as const) : ("home" as const);
+
+    if (dogOdds <= 0) continue;
+
+    const aiOnUnderdog = pickSide === dogSide;
+    const edge = aiOnUnderdog ? moneylineStatEdge : 0;
+
+    bucket.push({
+      game,
+      betLabel: dogTeam,
+      betOdds: dogOdds,
+      edge,
+      score: Math.max(edge, 1) / 10,
+      reason: aiOnUnderdog
+        ? `AI plus-money dog: ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 edge.`
+        : `Market underdog: ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 AI edge on this side.`,
+    });
+  }
+
+  return bucket.sort(compareByEdgeThenGamePk);
+}
+
+function pickBestFromBucket<T extends { edge: number; game: EnrichedGame }>(
+  bucket: T[]
+): T | undefined {
+  if (bucket.length === 0) return undefined;
+  return [...bucket].sort(compareByEdgeThenGamePk)[0];
 }
 
 /**
@@ -156,45 +199,69 @@ function pickHighestConfidenceTotal(
  * 1. Best O/U total
  * 2. Best plus-money ML underdog
  * 3. Best ML favorite (negative moneyline only)
+ *
+ * Never fills a missing category with a duplicate favorite.
  */
 export function selectBestBets(
   games: EnrichedGame[],
   limit = EXPECTED_BEST_BETS_COUNT
 ): BestBet[] {
-  const totals = games
-    .map((game) => buildTotalCandidate(game))
-    .filter((candidate): candidate is TotalCandidate => candidate !== null);
+  const totalBucket = collectTotalCandidates(games);
+  const underdogBucket = collectUnderdogCandidates(games);
+  const favoriteBucket = collectFavoriteCandidates(games);
 
-  const favorites = games
-    .map((game) => buildFavoriteCandidate(game))
-    .filter((candidate): candidate is MoneylineCandidate => candidate !== null)
-    .sort(compareByEdgeThenGamePk);
-
-  const underdogs = games
-    .map((game) => buildUnderdogCandidate(game))
-    .filter((candidate): candidate is MoneylineCandidate => candidate !== null)
-    .sort(compareByEdgeThenGamePk);
+  console.warn(
+    `[BestBets] candidate pools — total: ${totalBucket.length}, underdog: ${underdogBucket.length}, favorite: ${favoriteBucket.length}`
+  );
 
   const picks: BestBet[] = [];
 
-  const bestTotal = pickHighestConfidenceTotal(totals);
+  const bestTotal = pickBestFromBucket(totalBucket);
   if (bestTotal) {
     picks.push(
       candidateToBestBet(bestTotal, "total", "total", picks.length + 1)
     );
-  }
-
-  const bestUnderdog = underdogs[0];
-  if (bestUnderdog) {
-    picks.push(
-      candidateToBestBet(bestUnderdog, "moneyline", "underdog", picks.length + 1)
+  } else {
+    console.warn(
+      "[BestBets] No O/U total candidate found for today's slate (need totalsPick + line + price)."
     );
   }
 
-  const bestFavorite = favorites[0];
+  const bestUnderdog = pickBestFromBucket(underdogBucket);
+  if (bestUnderdog) {
+    picks.push(
+      candidateToBestBet(
+        bestUnderdog,
+        "moneyline",
+        "underdog",
+        picks.length + 1
+      )
+    );
+  } else {
+    console.warn(
+      "[BestBets] No plus-money underdog candidate found for today's slate."
+    );
+  }
+
+  const bestFavorite = pickBestFromBucket(favoriteBucket);
   if (bestFavorite) {
     picks.push(
-      candidateToBestBet(bestFavorite, "moneyline", "favorite", picks.length + 1)
+      candidateToBestBet(
+        bestFavorite,
+        "moneyline",
+        "favorite",
+        picks.length + 1
+      )
+    );
+  } else {
+    console.warn(
+      "[BestBets] No negative-ML favorite candidate found for today's slate."
+    );
+  }
+
+  if (picks.length !== EXPECTED_BEST_BETS_COUNT) {
+    console.warn(
+      `[BestBets] Expected ${EXPECTED_BEST_BETS_COUNT} picks but selected ${picks.length}. Missing categories are not backfilled.`
     );
   }
 
