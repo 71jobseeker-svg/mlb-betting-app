@@ -1,6 +1,9 @@
 import type { EnrichedGame } from "@/lib/games";
-import { formatAmericanOdds } from "@/lib/odds";
-import { EXPECTED_BEST_BETS_COUNT } from "@/lib/slate-picks-ready";
+import {
+  EXPECTED_BEST_BETS_COUNT,
+  pickBestTotalBet,
+  type TotalBetCandidate,
+} from "@/lib/slate-picks-ready";
 
 export type BestBetType = "moneyline" | "total";
 
@@ -18,15 +21,6 @@ export type BestBet = EnrichedGame & {
   lockedAt?: string;
   /** Graded from locked snapshot after final */
   bestBetResult?: "win" | "loss" | "push" | null;
-};
-
-type TotalCandidate = {
-  game: EnrichedGame;
-  betLabel: string;
-  betOdds: number;
-  edge: number;
-  reason: string;
-  score: number;
 };
 
 type MoneylineCandidate = {
@@ -49,66 +43,45 @@ function compareByEdgeThenGamePk<
   return b.game.gamePk - a.game.gamePk;
 }
 
-function candidateToBestBet(
-  candidate: TotalCandidate | MoneylineCandidate,
-  betType: BestBetType,
-  betCategory: BestBetCategory,
+function totalCandidateToBestBet(
+  candidate: TotalBetCandidate,
   rank: number
 ): BestBet {
-  const base: BestBet = {
+  return {
     ...candidate.game,
     rank,
-    betType,
+    betType: "total",
+    betCategory: "total",
+    betLabel: candidate.betLabel,
+    betOdds: candidate.betOdds,
+    statReason: candidate.reason,
+    statScore: candidate.score,
+    totalsPick: candidate.totalsPick,
+  };
+}
+
+function moneylineCandidateToBestBet(
+  candidate: MoneylineCandidate,
+  betCategory: "favorite" | "underdog",
+  rank: number
+): BestBet {
+  const side =
+    candidate.betLabel === candidate.game.away
+      ? ("away" as const)
+      : ("home" as const);
+  return {
+    ...candidate.game,
+    rank,
+    betType: "moneyline",
     betCategory,
     betLabel: candidate.betLabel,
     betOdds: candidate.betOdds,
     statReason: candidate.reason,
     statScore: candidate.score,
+    pickTeam: candidate.betLabel,
+    pickSide: side,
+    pickOdds: candidate.betOdds,
   };
-
-  if (betType === "moneyline") {
-    const side =
-      candidate.betLabel === candidate.game.away
-        ? ("away" as const)
-        : ("home" as const);
-    return {
-      ...base,
-      pickTeam: candidate.betLabel,
-      pickSide: side,
-      pickOdds: candidate.betOdds,
-    };
-  }
-
-  return base;
-}
-
-/** O/U bucket: any game with a totals pick, line, and price. */
-function collectTotalCandidates(games: EnrichedGame[]): TotalCandidate[] {
-  const bucket: TotalCandidate[] = [];
-
-  for (const game of games) {
-    if (!game.totalsPick || game.totalPoint === null) continue;
-
-    const betOdds =
-      game.totalsPick === "over" ? game.overPrice : game.underPrice;
-    if (betOdds === null) continue;
-
-    const betLabel = `${game.totalsPick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
-    const edge = game.totalsStatEdge;
-
-    bucket.push({
-      game,
-      betLabel,
-      betOdds,
-      edge,
-      score: Math.max(edge, 1) / 10,
-      reason:
-        game.totalsRecommendation ??
-        `AI sees ${edge}/10 statistical edge on the ${betLabel} (${formatAmericanOdds(betOdds)}).`,
-    });
-  }
-
-  return bucket.sort(compareByEdgeThenGamePk);
 }
 
 /**
@@ -206,33 +179,29 @@ export function selectBestBets(
   games: EnrichedGame[],
   limit = EXPECTED_BEST_BETS_COUNT
 ): BestBet[] {
-  const totalBucket = collectTotalCandidates(games);
   const underdogBucket = collectUnderdogCandidates(games);
   const favoriteBucket = collectFavoriteCandidates(games);
 
   console.warn(
-    `[BestBets] candidate pools — total: ${totalBucket.length}, underdog: ${underdogBucket.length}, favorite: ${favoriteBucket.length}`
+    `[BestBets] candidate pools — underdog: ${underdogBucket.length}, favorite: ${favoriteBucket.length}`
   );
 
   const picks: BestBet[] = [];
 
-  const bestTotal = pickBestFromBucket(totalBucket);
+  const bestTotal = pickBestTotalBet(games);
   if (bestTotal) {
-    picks.push(
-      candidateToBestBet(bestTotal, "total", "total", picks.length + 1)
-    );
+    picks.push(totalCandidateToBestBet(bestTotal, picks.length + 1));
   } else {
     console.warn(
-      "[BestBets] No O/U total candidate found for today's slate (need totalsPick + line + price)."
+      "[BestBets] No O/U total could be selected — slate has no games with a total line and prices."
     );
   }
 
   const bestUnderdog = pickBestFromBucket(underdogBucket);
   if (bestUnderdog) {
     picks.push(
-      candidateToBestBet(
+      moneylineCandidateToBestBet(
         bestUnderdog,
-        "moneyline",
         "underdog",
         picks.length + 1
       )
@@ -246,9 +215,8 @@ export function selectBestBets(
   const bestFavorite = pickBestFromBucket(favoriteBucket);
   if (bestFavorite) {
     picks.push(
-      candidateToBestBet(
+      moneylineCandidateToBestBet(
         bestFavorite,
-        "moneyline",
         "favorite",
         picks.length + 1
       )
@@ -261,7 +229,7 @@ export function selectBestBets(
 
   if (picks.length !== EXPECTED_BEST_BETS_COUNT) {
     console.warn(
-      `[BestBets] Expected ${EXPECTED_BEST_BETS_COUNT} picks but selected ${picks.length}. Missing categories are not backfilled.`
+      `[BestBets] Expected ${EXPECTED_BEST_BETS_COUNT} picks but selected ${picks.length}.`
     );
   }
 

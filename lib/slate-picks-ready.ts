@@ -5,7 +5,122 @@ import {
   getPacificTimeParts,
   isAfter8amPacific,
 } from "@/lib/date";
+import { formatAmericanOdds } from "@/lib/odds";
 import type { LockedGamePick } from "@/lib/persistence/types";
+
+export const MIN_TOTALS_EDGE = 7;
+
+export type TotalBetCandidate = {
+  game: EnrichedGame;
+  betLabel: string;
+  betOdds: number;
+  edge: number;
+  reason: string;
+  score: number;
+  totalsPick: "over" | "under";
+};
+
+type CollectTotalOptions = {
+  minEdge: number | null;
+  requireTotalsPick: boolean;
+};
+
+function resolveTotalsSide(
+  game: EnrichedGame
+): { pick: "over" | "under"; betOdds: number } | null {
+  const { totalsPick, overPrice, underPrice } = game;
+
+  if (totalsPick === "over" && overPrice !== null) {
+    return { pick: "over", betOdds: overPrice };
+  }
+  if (totalsPick === "under" && underPrice !== null) {
+    return { pick: "under", betOdds: underPrice };
+  }
+  if (!totalsPick) {
+    if (overPrice !== null) return { pick: "over", betOdds: overPrice };
+    if (underPrice !== null) return { pick: "under", betOdds: underPrice };
+  }
+  return null;
+}
+
+function compareTotalCandidates(
+  a: TotalBetCandidate,
+  b: TotalBetCandidate
+): number {
+  if (b.edge !== a.edge) return b.edge - a.edge;
+  return b.game.gamePk - a.game.gamePk;
+}
+
+/** O/U bucket — filters by confidence threshold and optional AI totalsPick requirement. */
+export function collectTotalCandidates(
+  games: EnrichedGame[],
+  options: CollectTotalOptions = { minEdge: MIN_TOTALS_EDGE, requireTotalsPick: true }
+): TotalBetCandidate[] {
+  const bucket: TotalBetCandidate[] = [];
+
+  for (const game of games) {
+    if (game.totalPoint === null) continue;
+    if (options.requireTotalsPick && !game.totalsPick) continue;
+
+    const side = resolveTotalsSide(game);
+    if (!side) continue;
+
+    const edge = game.totalsStatEdge;
+    if (options.minEdge !== null && edge < options.minEdge) continue;
+
+    const betLabel = `${side.pick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
+
+    bucket.push({
+      game,
+      betLabel,
+      betOdds: side.betOdds,
+      edge,
+      score: Math.max(edge, 1) / 10,
+      totalsPick: side.pick,
+      reason:
+        game.totalsRecommendation ??
+        `AI sees ${edge}/10 statistical edge on the ${betLabel} (${formatAmericanOdds(side.betOdds)}).`,
+    });
+  }
+
+  const sorted = bucket.sort(compareTotalCandidates);
+  console.warn(
+    `[BestBets] collectTotalCandidates found ${sorted.length} after filtering (minEdge=${options.minEdge}, requireTotalsPick=${options.requireTotalsPick})`
+  );
+  return sorted;
+}
+
+/** Best O/U pick with tiered fallback — never returns a moneyline bet. */
+export function pickBestTotalBet(
+  games: EnrichedGame[]
+): TotalBetCandidate | undefined {
+  let bucket = collectTotalCandidates(games, {
+    minEdge: MIN_TOTALS_EDGE,
+    requireTotalsPick: true,
+  });
+
+  if (bucket.length === 0) {
+    console.warn(
+      "[BestBets] No totals at 7+ edge — re-running with confidence threshold removed."
+    );
+    bucket = collectTotalCandidates(games, {
+      minEdge: null,
+      requireTotalsPick: true,
+    });
+  }
+
+  if (bucket.length === 0) {
+    console.warn(
+      "[BestBets] Still no totals with AI pick — selecting highest-confidence O/U from full slate."
+    );
+    bucket = collectTotalCandidates(games, {
+      minEdge: null,
+      requireTotalsPick: false,
+    });
+  }
+
+  return bucket[0];
+}
 
 export type SlatePicksStatus =
   | { type: "ready" }

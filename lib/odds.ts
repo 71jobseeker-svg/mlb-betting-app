@@ -237,7 +237,8 @@ function findSpreadsFromAnyBookmaker(
 export function extractGameOdds(
   event: OddsApiEvent,
   awayTeam: string,
-  homeTeam: string
+  homeTeam: string,
+  gameId?: number
 ): GameOdds {
   const eventAway = event.away_team;
   const eventHome = event.home_team;
@@ -312,6 +313,18 @@ export function extractGameOdds(
       };
     }
   }
+
+  const totalLine: TotalLine = {
+    point: best.point,
+    overPrice: best.overPrice,
+    underPrice: best.underPrice,
+  };
+  console.warn(
+    "[Odds] game:",
+    gameId ?? event.id,
+    "totalLine:",
+    totalLine
+  );
 
   return best;
 }

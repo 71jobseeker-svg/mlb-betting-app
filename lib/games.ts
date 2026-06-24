@@ -181,7 +181,7 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     const { isFinal, awayWon } = extractGameResult(game);
     const oddsEvent = findOddsForMatchup(oddsEvents, away, home);
     const odds = oddsEvent
-      ? extractGameOdds(oddsEvent, away, home)
+      ? extractGameOdds(oddsEvent, away, home, game.gamePk)
       : {
           awayMoneyline: null,
           homeMoneyline: null,
