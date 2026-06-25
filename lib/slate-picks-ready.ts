@@ -90,10 +90,10 @@ export function collectTotalCandidates(
   return sorted;
 }
 
-/** Best O/U pick with tiered fallback — never returns a moneyline bet. */
-export function pickBestTotalBet(
+/** Full O/U pool using the same tiered fallback as pickBestTotalBet. */
+export function getTotalCandidatePool(
   games: EnrichedGame[]
-): TotalBetCandidate | undefined {
+): TotalBetCandidate[] {
   let bucket = collectTotalCandidates(games, {
     minEdge: MIN_TOTALS_EDGE,
     requireTotalsPick: true,
@@ -119,7 +119,14 @@ export function pickBestTotalBet(
     });
   }
 
-  return bucket[0];
+  return bucket;
+}
+
+/** Best O/U pick with tiered fallback — never returns a moneyline bet. */
+export function pickBestTotalBet(
+  games: EnrichedGame[]
+): TotalBetCandidate | undefined {
+  return getTotalCandidatePool(games)[0];
 }
 
 export type SlatePicksStatus =

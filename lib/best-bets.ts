@@ -1,7 +1,7 @@
 import type { EnrichedGame } from "@/lib/games";
 import {
   EXPECTED_BEST_BETS_COUNT,
-  pickBestTotalBet,
+  getTotalCandidatePool,
   type TotalBetCandidate,
 } from "@/lib/slate-picks-ready";
 
@@ -167,6 +167,99 @@ function pickBestFromBucket<T extends { edge: number; game: EnrichedGame }>(
   return [...bucket].sort(compareByEdgeThenGamePk)[0];
 }
 
+function pickBestFromBucketExcluding<
+  T extends { edge: number; game: EnrichedGame },
+>(bucket: T[], excludeGamePks: Set<number>): T | undefined {
+  return bucket.find((candidate) => !excludeGamePks.has(candidate.game.gamePk));
+}
+
+function deduplicateBestBetCandidates(
+  total: TotalBetCandidate | undefined,
+  underdog: MoneylineCandidate | undefined,
+  favorite: MoneylineCandidate | undefined,
+  totalPool: TotalBetCandidate[],
+  underdogBucket: MoneylineCandidate[],
+  favoriteBucket: MoneylineCandidate[]
+): {
+  total: TotalBetCandidate | undefined;
+  underdog: MoneylineCandidate | undefined;
+  favorite: MoneylineCandidate | undefined;
+} {
+  let resolvedTotal = total;
+  let resolvedUnderdog = underdog;
+  let resolvedFavorite = favorite;
+
+  if (
+    resolvedUnderdog &&
+    resolvedFavorite &&
+    resolvedUnderdog.game.gamePk === resolvedFavorite.game.gamePk
+  ) {
+    const sameGamePk = resolvedUnderdog.game.gamePk;
+    const exclude = new Set([sameGamePk]);
+
+    if (resolvedUnderdog.edge < resolvedFavorite.edge) {
+      const replacement = pickBestFromBucketExcluding(
+        underdogBucket,
+        exclude
+      );
+      if (replacement) {
+        console.warn(
+          `[BestBets] Dog and Favorite shared game ${sameGamePk} — replaced underdog (edge ${resolvedUnderdog.edge}) with game ${replacement.game.gamePk} (edge ${replacement.edge}).`
+        );
+        resolvedUnderdog = replacement;
+      }
+    } else if (resolvedFavorite.edge < resolvedUnderdog.edge) {
+      const replacement = pickBestFromBucketExcluding(
+        favoriteBucket,
+        exclude
+      );
+      if (replacement) {
+        console.warn(
+          `[BestBets] Dog and Favorite shared game ${sameGamePk} — replaced favorite (edge ${resolvedFavorite.edge}) with game ${replacement.game.gamePk} (edge ${replacement.edge}).`
+        );
+        resolvedFavorite = replacement;
+      }
+    } else {
+      const replacement = pickBestFromBucketExcluding(
+        underdogBucket,
+        exclude
+      );
+      if (replacement) {
+        console.warn(
+          `[BestBets] Dog and Favorite tied on game ${sameGamePk} — replaced underdog with game ${replacement.game.gamePk}.`
+        );
+        resolvedUnderdog = replacement;
+      }
+    }
+  }
+
+  if (resolvedTotal) {
+    const usedGamePks = new Set<number>();
+    if (resolvedUnderdog) usedGamePks.add(resolvedUnderdog.game.gamePk);
+    if (resolvedFavorite) usedGamePks.add(resolvedFavorite.game.gamePk);
+
+    if (usedGamePks.has(resolvedTotal.game.gamePk)) {
+      const replacement = pickBestFromBucketExcluding(totalPool, usedGamePks);
+      if (replacement) {
+        console.warn(
+          `[BestBets] O/U shared game ${resolvedTotal.game.gamePk} with a moneyline pick — replaced with game ${replacement.game.gamePk} (edge ${replacement.edge}).`
+        );
+        resolvedTotal = replacement;
+      } else {
+        console.warn(
+          `[BestBets] O/U shared game ${resolvedTotal.game.gamePk} with a moneyline pick but no alternate total was available.`
+        );
+      }
+    }
+  }
+
+  return {
+    total: resolvedTotal,
+    underdog: resolvedUnderdog,
+    favorite: resolvedFavorite,
+  };
+}
+
 /**
  * Exactly 3 daily best bets — one per category, highest confidence each:
  * 1. Best O/U total
@@ -179,16 +272,29 @@ export function selectBestBets(
   games: EnrichedGame[],
   limit = EXPECTED_BEST_BETS_COUNT
 ): BestBet[] {
+  const totalPool = getTotalCandidatePool(games);
   const underdogBucket = collectUnderdogCandidates(games);
   const favoriteBucket = collectFavoriteCandidates(games);
 
   console.warn(
-    `[BestBets] candidate pools — underdog: ${underdogBucket.length}, favorite: ${favoriteBucket.length}`
+    `[BestBets] candidate pools — total: ${totalPool.length}, underdog: ${underdogBucket.length}, favorite: ${favoriteBucket.length}`
+  );
+
+  const {
+    total: bestTotal,
+    underdog: bestUnderdog,
+    favorite: bestFavorite,
+  } = deduplicateBestBetCandidates(
+    pickBestFromBucket(totalPool),
+    pickBestFromBucket(underdogBucket),
+    pickBestFromBucket(favoriteBucket),
+    totalPool,
+    underdogBucket,
+    favoriteBucket
   );
 
   const picks: BestBet[] = [];
 
-  const bestTotal = pickBestTotalBet(games);
   if (bestTotal) {
     picks.push(totalCandidateToBestBet(bestTotal, picks.length + 1));
   } else {
@@ -197,7 +303,6 @@ export function selectBestBets(
     );
   }
 
-  const bestUnderdog = pickBestFromBucket(underdogBucket);
   if (bestUnderdog) {
     picks.push(
       moneylineCandidateToBestBet(
@@ -212,7 +317,6 @@ export function selectBestBets(
     );
   }
 
-  const bestFavorite = pickBestFromBucket(favoriteBucket);
   if (bestFavorite) {
     picks.push(
       moneylineCandidateToBestBet(
