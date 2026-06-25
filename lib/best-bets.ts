@@ -2,6 +2,7 @@ import type { EnrichedGame } from "@/lib/games";
 import {
   EXPECTED_BEST_BETS_COUNT,
   getTotalCandidatePool,
+  pickBestTotalBetExcluding,
   type TotalBetCandidate,
 } from "@/lib/slate-picks-ready";
 
@@ -57,6 +58,7 @@ function totalCandidateToBestBet(
     statReason: candidate.reason,
     statScore: candidate.score,
     totalsPick: candidate.totalsPick,
+    totalsStatEdge: candidate.edge,
   };
 }
 
@@ -174,10 +176,10 @@ function pickBestFromBucketExcluding<
 }
 
 function deduplicateBestBetCandidates(
+  games: EnrichedGame[],
   total: TotalBetCandidate | undefined,
   underdog: MoneylineCandidate | undefined,
   favorite: MoneylineCandidate | undefined,
-  totalPool: TotalBetCandidate[],
   underdogBucket: MoneylineCandidate[],
   favoriteBucket: MoneylineCandidate[]
 ): {
@@ -239,7 +241,7 @@ function deduplicateBestBetCandidates(
     if (resolvedFavorite) usedGamePks.add(resolvedFavorite.game.gamePk);
 
     if (usedGamePks.has(resolvedTotal.game.gamePk)) {
-      const replacement = pickBestFromBucketExcluding(totalPool, usedGamePks);
+      const replacement = pickBestTotalBetExcluding(games, usedGamePks);
       if (replacement) {
         console.warn(
           `[BestBets] O/U shared game ${resolvedTotal.game.gamePk} with a moneyline pick — replaced with game ${replacement.game.gamePk} (edge ${replacement.edge}).`
@@ -285,10 +287,10 @@ export function selectBestBets(
     underdog: bestUnderdog,
     favorite: bestFavorite,
   } = deduplicateBestBetCandidates(
+    games,
     pickBestFromBucket(totalPool),
     pickBestFromBucket(underdogBucket),
     pickBestFromBucket(favoriteBucket),
-    totalPool,
     underdogBucket,
     favoriteBucket
   );

@@ -65,8 +65,13 @@ export function collectTotalCandidates(
     const side = resolveTotalsSide(game);
     if (!side) continue;
 
+    if (game.totalsPick != null && game.totalsPick !== side.pick) continue;
+
     const edge = game.totalsStatEdge;
     if (options.minEdge !== null && edge < options.minEdge) continue;
+    if (options.minEdge === null && options.requireTotalsPick && edge <= 0) {
+      continue;
+    }
 
     const betLabel = `${side.pick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
 
@@ -75,7 +80,7 @@ export function collectTotalCandidates(
       betLabel,
       betOdds: side.betOdds,
       edge,
-      score: Math.max(edge, 1) / 10,
+      score: edge / 10,
       totalsPick: side.pick,
       reason:
         game.totalsRecommendation ??
@@ -126,7 +131,24 @@ export function getTotalCandidatePool(
 export function pickBestTotalBet(
   games: EnrichedGame[]
 ): TotalBetCandidate | undefined {
-  return getTotalCandidatePool(games)[0];
+  return pickBestTotalBetExcluding(games, new Set());
+}
+
+/** Best O/U from a different game than the excluded set (re-runs tier fallback). */
+export function pickBestTotalBetExcluding(
+  games: EnrichedGame[],
+  excludeGamePks: Set<number>
+): TotalBetCandidate | undefined {
+  const pickFrom = (options: CollectTotalOptions) =>
+    collectTotalCandidates(games, options).find(
+      (candidate) => !excludeGamePks.has(candidate.game.gamePk)
+    );
+
+  return (
+    pickFrom({ minEdge: MIN_TOTALS_EDGE, requireTotalsPick: true }) ??
+    pickFrom({ minEdge: null, requireTotalsPick: true }) ??
+    pickFrom({ minEdge: null, requireTotalsPick: false })
+  );
 }
 
 export type SlatePicksStatus =
@@ -302,7 +324,8 @@ export function isLockedBestBetsValid(bets: BestBet[]): boolean {
       }
     }
 
-    if (bet.statScore <= 0) return false;
+    if (bet.betType === "moneyline" && bet.statScore <= 0) return false;
+    if (bet.betType === "total" && bet.statScore < 0) return false;
   }
 
   return true;
