@@ -110,7 +110,16 @@ export async function applyLockedPicks(
     const existing = picks[key];
 
     if (existing && isValidLockedGamePick(existing)) {
-      return mergeLockedIntoGame(game, existing);
+      const merged = mergeLockedIntoGame(game, existing);
+      if (
+        game.totalsStatEdge !== merged.totalsStatEdge ||
+        game.totalsPick !== merged.totalsPick
+      ) {
+        console.warn(
+          `[TotalsEdge] lock-merge gamePk=${game.gamePk} freshEdge=${game.totalsStatEdge} freshPick=${game.totalsPick ?? "null"} → mergedEdge=${merged.totalsStatEdge} mergedPick=${merged.totalsPick ?? "null"} useLockedTotals=${hasValidLockedTotalsFields(existing)} lockEdge=${existing.totalsStatEdge} lockPick=${existing.totalsPick ?? "null"}`
+        );
+      }
+      return merged;
     }
 
     if (!canLockNew || !gameHasMoneylineOdds(game) || game.pickOdds === null) {

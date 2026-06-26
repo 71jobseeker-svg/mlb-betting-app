@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getLastTotalsEdgeTrace } from "@/lib/analysis";
 import { getTodayInPacific } from "@/lib/date";
 import { getTodaysGamesForBestBetRefresh } from "@/lib/games";
 import { refreshLockedTotalBestBet } from "@/lib/lock-picks";
@@ -54,6 +55,7 @@ export async function POST() {
         : null,
       favorite: refreshed.find((b) => b.betCategory === "favorite")?.betLabel,
       underdog: refreshed.find((b) => b.betCategory === "underdog")?.betLabel,
+      totalsEdgeTrace: getLastTotalsEdgeTrace(),
     });
   } catch (error) {
     console.error("[refresh-total-best-bet]", error);

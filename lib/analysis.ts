@@ -50,6 +50,37 @@ type AiResponseItem = {
 const PASS_PATTERN =
   /\bpass\b|no\s+(clear\s+)?edge|no\s+bet|skip|stay\s+away|avoid\s+betting/i;
 
+export type TotalsEdgeTraceEntry = {
+  gamePk: number;
+  away: string;
+  home: string;
+  source: "ai" | "fallback" | "missing-from-response";
+  rawTotalsStatEdge: unknown;
+  rawTotalsPick: unknown;
+  normalizedTotalsStatEdge: number;
+  normalizedTotalsPick: "over" | "under" | null;
+  pickStrippedBelow7: boolean;
+};
+
+let lastTotalsEdgeTrace: TotalsEdgeTraceEntry[] = [];
+
+/** Most recent per-game totals edge trace (for /api/slate-debug). */
+export function getLastTotalsEdgeTrace(): TotalsEdgeTraceEntry[] {
+  return lastTotalsEdgeTrace;
+}
+
+function logTotalsEdgeTrace(entries: TotalsEdgeTraceEntry[]): void {
+  lastTotalsEdgeTrace = entries;
+  console.warn(
+    `[TotalsEdge] trace summary — games: ${entries.length}, ai: ${entries.filter((e) => e.source === "ai").length}, fallback: ${entries.filter((e) => e.source === "fallback").length}, missing: ${entries.filter((e) => e.source === "missing-from-response").length}, edge>0: ${entries.filter((e) => e.normalizedTotalsStatEdge > 0).length}, edge>=7: ${entries.filter((e) => e.normalizedTotalsStatEdge >= 7).length}`
+  );
+  for (const entry of entries) {
+    console.warn(
+      `[TotalsEdge] gamePk=${entry.gamePk} ${entry.away}@${entry.home} source=${entry.source} rawEdge=${JSON.stringify(entry.rawTotalsStatEdge)} rawPick=${JSON.stringify(entry.rawTotalsPick)} normalizedEdge=${entry.normalizedTotalsStatEdge} normalizedPick=${entry.normalizedTotalsPick ?? "null"} strippedBelow7=${entry.pickStrippedBelow7}`
+    );
+  }
+}
+
 export async function generateBettingRecommendations(
   games: GameForAnalysis[]
 ): Promise<Map<number, GameAnalysis>> {
@@ -57,9 +88,23 @@ export async function generateBettingRecommendations(
   const results = new Map<number, GameAnalysis>();
 
   if (!apiKey) {
+    console.warn("[TotalsEdge] ANTHROPIC_API_KEY missing — using fallback (edge 0)");
+    const trace: TotalsEdgeTraceEntry[] = [];
     for (const game of games) {
+      trace.push({
+        gamePk: game.gamePk,
+        away: game.away,
+        home: game.home,
+        source: "fallback",
+        rawTotalsStatEdge: null,
+        rawTotalsPick: null,
+        normalizedTotalsStatEdge: 0,
+        normalizedTotalsPick: null,
+        pickStrippedBelow7: false,
+      });
       results.set(game.gamePk, fallbackAnalysis(game));
     }
+    logTotalsEdgeTrace(trace);
     return results;
   }
 
@@ -108,14 +153,28 @@ ${games
   if (!res.ok) {
     const err = await res.text();
     console.error("Anthropic API failed:", res.status, err);
+    const trace: TotalsEdgeTraceEntry[] = [];
     for (const game of games) {
+      trace.push({
+        gamePk: game.gamePk,
+        away: game.away,
+        home: game.home,
+        source: "fallback",
+        rawTotalsStatEdge: null,
+        rawTotalsPick: null,
+        normalizedTotalsStatEdge: 0,
+        normalizedTotalsPick: null,
+        pickStrippedBelow7: false,
+      });
       results.set(game.gamePk, fallbackAnalysis(game));
     }
+    logTotalsEdgeTrace(trace);
     return results;
   }
 
   const data = (await res.json()) as {
     content?: Array<{ type: string; text?: string }>;
+    stop_reason?: string;
   };
 
   const text = data.content?.find((c) => c.type === "text")?.text ?? "[]";
@@ -128,7 +187,12 @@ ${games
     console.error("Failed to parse Anthropic JSON:", text.slice(0, 500));
   }
 
+  console.warn(
+    `[TotalsEdge] Anthropic response — gamesRequested=${games.length} parsedItems=${parsed.length} responseChars=${text.length} stopReason=${data.stop_reason ?? "unknown"}`
+  );
+
   const gamesByPk = new Map(games.map((g) => [g.gamePk, g]));
+  const trace: TotalsEdgeTraceEntry[] = [];
 
   for (const item of parsed) {
     const gamePk = Number(item.gamePk);
@@ -141,15 +205,29 @@ ${games
       ""
     ).trim();
 
-    results.set(gamePk, normalizeAnalysis(game, mlText, item));
+    const { analysis, traceEntry } = normalizeAnalysisWithTrace(game, mlText, item);
+    trace.push(traceEntry);
+    results.set(gamePk, analysis);
   }
 
   for (const game of games) {
     if (!results.has(game.gamePk)) {
+      trace.push({
+        gamePk: game.gamePk,
+        away: game.away,
+        home: game.home,
+        source: "missing-from-response",
+        rawTotalsStatEdge: null,
+        rawTotalsPick: null,
+        normalizedTotalsStatEdge: 0,
+        normalizedTotalsPick: null,
+        pickStrippedBelow7: false,
+      });
       results.set(game.gamePk, fallbackAnalysis(game));
     }
   }
 
+  logTotalsEdgeTrace(trace);
   return results;
 }
 
@@ -167,19 +245,22 @@ function formatRunLineForPrompt(game: GameForAnalysis): string {
   return "RL N/A";
 }
 
-function normalizeAnalysis(
+function normalizeAnalysisWithTrace(
   game: GameForAnalysis,
   mlText: string,
   item: AiResponseItem
-): GameAnalysis {
-  const moneylineRecommendation = PASS_PATTERN.test(mlText)
-    ? fallbackMoneyline(game)
-    : mlText;
+): { analysis: GameAnalysis; traceEntry: TotalsEdgeTraceEntry } {
+  const rawTotalsStatEdge = item.totalsStatEdge;
+  const rawTotalsPick = item.totalsPick ?? null;
 
   let totalsPick: "over" | "under" | null = null;
   if (item.totalsPick === "over" || item.totalsPick === "under") {
     totalsPick = item.totalsPick;
   }
+
+  const moneylineRecommendation = PASS_PATTERN.test(mlText)
+    ? fallbackMoneyline(game)
+    : mlText;
 
   const moneylineStatEdge = clampEdge(item.moneylineStatEdge ?? 0);
   const totalsStatEdge = clampEdge(item.totalsStatEdge ?? 0);
@@ -187,7 +268,9 @@ function normalizeAnalysis(
   let totalsRecommendation =
     item.totalsRecommendation?.trim() || null;
 
+  let pickStrippedBelow7 = false;
   if (totalsPick && totalsStatEdge < 7) {
+    pickStrippedBelow7 = true;
     totalsPick = null;
     totalsRecommendation = null;
   }
@@ -202,7 +285,7 @@ function normalizeAnalysis(
 
   const runLine = normalizeRunLine(game, item);
 
-  return {
+  const analysis: GameAnalysis = {
     moneylineRecommendation,
     moneylineStatEdge,
     runLinePickSide: runLine.runLinePickSide,
@@ -212,6 +295,28 @@ function normalizeAnalysis(
     totalsRecommendation,
     totalsStatEdge,
   };
+
+  const traceEntry: TotalsEdgeTraceEntry = {
+    gamePk: game.gamePk,
+    away: game.away,
+    home: game.home,
+    source: "ai",
+    rawTotalsStatEdge,
+    rawTotalsPick,
+    normalizedTotalsStatEdge: totalsStatEdge,
+    normalizedTotalsPick: totalsPick,
+    pickStrippedBelow7,
+  };
+
+  return { analysis, traceEntry };
+}
+
+function normalizeAnalysis(
+  game: GameForAnalysis,
+  mlText: string,
+  item: AiResponseItem
+): GameAnalysis {
+  return normalizeAnalysisWithTrace(game, mlText, item).analysis;
 }
 
 function normalizeRunLine(
