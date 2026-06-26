@@ -13,6 +13,20 @@ import {
   scoreKey,
 } from "@/lib/persistence/keys";
 
+export function clearBestBetTotalRecord(
+  store: RecordsStore,
+  slateDate: string,
+  gamePk: number
+): RecordsStore {
+  const day = store.days[slateDate];
+  if (!day) return store;
+
+  const key = bestBetRecordKey(gamePk, "total");
+  delete day.pending[key];
+  delete day.settled[key];
+  return store;
+}
+
 export function emptyRecordsStore(): RecordsStore {
   return { days: {} };
 }

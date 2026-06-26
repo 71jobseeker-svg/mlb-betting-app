@@ -399,3 +399,12 @@ export async function getTodaysGamesWithAnalysis(): Promise<{
     totals: hydrated.totals,
   };
 }
+
+/** Slate games after per-game locks — for refreshing only the O/U best bet. */
+export async function getTodaysGamesForBestBetRefresh(): Promise<{
+  date: string;
+  games: EnrichedGame[];
+}> {
+  const { date, games } = await getTodaysGamesWithAnalysis();
+  return { date, games };
+}

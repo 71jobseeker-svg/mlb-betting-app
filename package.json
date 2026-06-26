@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "fix-env": "node scripts/fix-env-encoding.mjs",
-    "reset-records": "node scripts/reset-launch-data.mjs --all"
+    "reset-records": "node scripts/reset-launch-data.mjs --all",
+    "refresh-total-best-bet": "node scripts/refresh-total-best-bet.mjs"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.0",

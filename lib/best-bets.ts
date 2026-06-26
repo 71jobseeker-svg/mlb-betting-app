@@ -45,7 +45,7 @@ function compareByEdgeThenGamePk<
   return b.game.gamePk - a.game.gamePk;
 }
 
-function totalCandidateToBestBet(
+export function buildTotalBestBet(
   candidate: TotalBetCandidate,
   rank: number
 ): BestBet {
@@ -63,6 +63,13 @@ function totalCandidateToBestBet(
     totalsPick: candidate.totalsPick,
     totalsStatEdge: edge,
   };
+}
+
+function totalCandidateToBestBet(
+  candidate: TotalBetCandidate,
+  rank: number
+): BestBet {
+  return buildTotalBestBet(candidate, rank);
 }
 
 function moneylineCandidateToBestBet(
