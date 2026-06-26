@@ -210,7 +210,7 @@ function normalizeAnalysis(
     runLineStatEdge: runLine.runLineStatEdge,
     totalsPick,
     totalsRecommendation,
-    totalsStatEdge: totalsPick ? totalsStatEdge : 0,
+    totalsStatEdge,
   };
 }
 

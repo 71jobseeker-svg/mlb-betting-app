@@ -3,6 +3,7 @@ import {
   EXPECTED_BEST_BETS_COUNT,
   getTotalCandidatePool,
   pickBestTotalBetExcluding,
+  totalCandidateScore,
   type TotalBetCandidate,
 } from "@/lib/slate-picks-ready";
 
@@ -48,6 +49,8 @@ function totalCandidateToBestBet(
   candidate: TotalBetCandidate,
   rank: number
 ): BestBet {
+  const edge = candidate.edge;
+
   return {
     ...candidate.game,
     rank,
@@ -56,9 +59,9 @@ function totalCandidateToBestBet(
     betLabel: candidate.betLabel,
     betOdds: candidate.betOdds,
     statReason: candidate.reason,
-    statScore: candidate.score,
+    statScore: totalCandidateScore(edge),
     totalsPick: candidate.totalsPick,
-    totalsStatEdge: candidate.edge,
+    totalsStatEdge: edge,
   };
 }
 

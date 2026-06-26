@@ -43,6 +43,22 @@ function resolveTotalsSide(
   return null;
 }
 
+/** AI totals edge for the resolved side — same 0–10 scale as moneylineStatEdge. */
+export function resolveTotalCandidateEdge(
+  game: EnrichedGame,
+  side: { pick: "over" | "under" }
+): number {
+  if (game.totalsPick != null && game.totalsPick !== side.pick) {
+    return 0;
+  }
+  return game.totalsStatEdge;
+}
+
+/** Match ML best-bet scoring: non-zero floor so score never reads as 0. */
+export function totalCandidateScore(edge: number): number {
+  return Math.max(edge, 1) / 10;
+}
+
 function compareTotalCandidates(
   a: TotalBetCandidate,
   b: TotalBetCandidate
@@ -67,7 +83,7 @@ export function collectTotalCandidates(
 
     if (game.totalsPick != null && game.totalsPick !== side.pick) continue;
 
-    const edge = game.totalsStatEdge;
+    const edge = resolveTotalCandidateEdge(game, side);
     if (options.minEdge !== null && edge < options.minEdge) continue;
     if (options.minEdge === null && options.requireTotalsPick && edge <= 0) {
       continue;
@@ -80,7 +96,7 @@ export function collectTotalCandidates(
       betLabel,
       betOdds: side.betOdds,
       edge,
-      score: edge / 10,
+      score: totalCandidateScore(edge),
       totalsPick: side.pick,
       reason:
         game.totalsRecommendation ??
@@ -322,10 +338,11 @@ export function isLockedBestBetsValid(bets: BestBet[]): boolean {
       ) {
         return false;
       }
+      if (bet.totalsStatEdge <= 0) return false;
     }
 
     if (bet.betType === "moneyline" && bet.statScore <= 0) return false;
-    if (bet.betType === "total" && bet.statScore < 0) return false;
+    if (bet.betType === "total" && bet.statScore <= 0) return false;
   }
 
   return true;
