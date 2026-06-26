@@ -72,9 +72,9 @@ Rules:
 - moneylineStatEdge: integer 0-10 (your confidence/statistical edge on the ML pick; 10=maximum).
 - Run line: ALWAYS pick one side at the listed spread (-1.5 favorite lay or +1.5 underdog). runLinePickSide must be "away" or "home". One sentence citing the run line American odds.
 - runLineStatEdge: integer 0-10 (confidence on the run line pick).
-- Totals: Only recommend Over or Under if you see a real statistical edge (line value, pitching, weather, park factors). Otherwise set totalsPick to null and totalsStatEdge to 0.
-- totalsStatEdge: integer 0-10 (0=no edge, 7+=strong edge worth a best bet, 10=maximum confidence). Only use 7+ when you genuinely favor the total bet.
-- totalsRecommendation: one sentence explaining the O/U pick, or null if no edge.
+- Totals: ALWAYS assign totalsStatEdge 1-10 for every game (rate your confidence on the O/U based on line value, pitching, weather, park factors). Use 1=no lean, 5=slight lean, 7+=actionable edge, 10=maximum confidence.
+- Set totalsPick to "over" or "under" only when totalsStatEdge is 7 or higher. When edge is below 7, totalsPick must be null.
+- totalsRecommendation: one sentence explaining the O/U pick when totalsPick is set, otherwise null.
 - Return ONLY valid JSON array:
 [{"gamePk":number,"moneylineRecommendation":"...","moneylineStatEdge":number,"runLinePickSide":"away"|"home","runLineRecommendation":"...","runLineStatEdge":number,"totalsPick":"over"|"under"|null,"totalsRecommendation":"..."|null,"totalsStatEdge":number}]
 

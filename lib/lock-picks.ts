@@ -9,8 +9,10 @@ import {
 import {
   canGenerateAndLockPicks,
   gameHasMoneylineOdds,
+  hasValidLockedTotalsFields,
   isLockedBestBetsValid,
   isValidLockedGamePick,
+  MIN_TOTALS_EDGE,
   pickBestTotalBetExcluding,
 } from "@/lib/slate-picks-ready";
 import type { EnrichedGame } from "@/lib/games";
@@ -31,6 +33,9 @@ function gameToLockedPick(
   slateDate: string,
   lockedAt: string
 ): LockedGamePick {
+  const lockTotals =
+    game.totalsPick != null && game.totalsStatEdge >= MIN_TOTALS_EDGE;
+
   return {
     gamePk: game.gamePk,
     slateDate,
@@ -40,9 +45,9 @@ function gameToLockedPick(
     pickOdds: game.pickOdds,
     recommendation: game.recommendation,
     moneylineStatEdge: game.moneylineStatEdge,
-    totalsPick: game.totalsPick,
-    totalsRecommendation: game.totalsRecommendation,
-    totalsStatEdge: game.totalsStatEdge,
+    totalsPick: lockTotals ? game.totalsPick : null,
+    totalsRecommendation: lockTotals ? game.totalsRecommendation : null,
+    totalsStatEdge: lockTotals ? game.totalsStatEdge : 0,
     runLineTeam: game.runLineTeam,
     runLinePickSide: game.runLinePickSide,
     runLineSpread: game.runLineSpread ?? 0,
@@ -58,6 +63,8 @@ function mergeLockedIntoGame(
   game: EnrichedGame,
   lock: LockedGamePick
 ): EnrichedGame {
+  const useLockedTotals = hasValidLockedTotalsFields(lock);
+
   return {
     ...game,
     picksAvailable: true,
@@ -66,9 +73,13 @@ function mergeLockedIntoGame(
     pickOdds: lock.pickOdds,
     recommendation: lock.recommendation,
     moneylineStatEdge: lock.moneylineStatEdge ?? game.moneylineStatEdge,
-    totalsPick: lock.totalsPick,
-    totalsRecommendation: lock.totalsRecommendation,
-    totalsStatEdge: lock.totalsStatEdge,
+    totalsPick: useLockedTotals ? lock.totalsPick : game.totalsPick,
+    totalsRecommendation: useLockedTotals
+      ? lock.totalsRecommendation
+      : game.totalsRecommendation,
+    totalsStatEdge: useLockedTotals
+      ? lock.totalsStatEdge
+      : game.totalsStatEdge,
     runLineTeam: lock.runLineTeam ?? game.runLineTeam,
     runLinePickSide: lock.runLinePickSide ?? game.runLinePickSide,
     runLineSpread: lock.runLineSpread ?? game.runLineSpread,

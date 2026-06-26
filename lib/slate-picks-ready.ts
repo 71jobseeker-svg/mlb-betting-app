@@ -295,6 +295,14 @@ export function isValidLockedGamePick(lock: LockedGamePick): boolean {
   return lock.pickOdds !== null;
 }
 
+/** Per-game lock has a real AI O/U pick worth freezing for the slate day. */
+export function hasValidLockedTotalsFields(lock: LockedGamePick): boolean {
+  return (
+    lock.totalsPick != null &&
+    lock.totalsStatEdge >= MIN_TOTALS_EDGE
+  );
+}
+
 export const EXPECTED_BEST_BETS_COUNT = 3;
 
 function hasExpectedBestBetCategories(bets: BestBet[]): boolean {
