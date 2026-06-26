@@ -62,17 +62,41 @@ export type TotalsEdgeTraceEntry = {
   pickStrippedBelow7: boolean;
 };
 
+export type TotalsEdgeTraceMeta = {
+  anthropicOutcome:
+    | "ok"
+    | "no-api-key"
+    | "http-error"
+    | "json-parse-error"
+    | "empty-response";
+  httpStatus?: number;
+  errorSnippet?: string;
+  gamesRequested: number;
+  parsedItems: number;
+  responseChars?: number;
+  stopReason?: string;
+};
+
 let lastTotalsEdgeTrace: TotalsEdgeTraceEntry[] = [];
+let lastTotalsEdgeTraceMeta: TotalsEdgeTraceMeta | null = null;
 
 /** Most recent per-game totals edge trace (for /api/slate-debug). */
 export function getLastTotalsEdgeTrace(): TotalsEdgeTraceEntry[] {
   return lastTotalsEdgeTrace;
 }
 
-function logTotalsEdgeTrace(entries: TotalsEdgeTraceEntry[]): void {
+export function getLastTotalsEdgeTraceMeta(): TotalsEdgeTraceMeta | null {
+  return lastTotalsEdgeTraceMeta;
+}
+
+function logTotalsEdgeTrace(
+  entries: TotalsEdgeTraceEntry[],
+  meta: TotalsEdgeTraceMeta
+): void {
   lastTotalsEdgeTrace = entries;
+  lastTotalsEdgeTraceMeta = meta;
   console.warn(
-    `[TotalsEdge] trace summary — games: ${entries.length}, ai: ${entries.filter((e) => e.source === "ai").length}, fallback: ${entries.filter((e) => e.source === "fallback").length}, missing: ${entries.filter((e) => e.source === "missing-from-response").length}, edge>0: ${entries.filter((e) => e.normalizedTotalsStatEdge > 0).length}, edge>=7: ${entries.filter((e) => e.normalizedTotalsStatEdge >= 7).length}`
+    `[TotalsEdge] trace summary — outcome=${meta.anthropicOutcome} games=${entries.length}, ai=${entries.filter((e) => e.source === "ai").length}, fallback=${entries.filter((e) => e.source === "fallback").length}, missing=${entries.filter((e) => e.source === "missing-from-response").length}, edge>0=${entries.filter((e) => e.normalizedTotalsStatEdge > 0).length}, edge>=7=${entries.filter((e) => e.normalizedTotalsStatEdge >= 7).length}${meta.httpStatus ? ` httpStatus=${meta.httpStatus}` : ""}${meta.errorSnippet ? ` err=${meta.errorSnippet.slice(0, 120)}` : ""}`
   );
   for (const entry of entries) {
     console.warn(
@@ -104,7 +128,11 @@ export async function generateBettingRecommendations(
       });
       results.set(game.gamePk, fallbackAnalysis(game));
     }
-    logTotalsEdgeTrace(trace);
+    logTotalsEdgeTrace(trace, {
+      anthropicOutcome: "no-api-key",
+      gamesRequested: games.length,
+      parsedItems: 0,
+    });
     return results;
   }
 
@@ -168,11 +196,15 @@ ${games
       });
       results.set(game.gamePk, fallbackAnalysis(game));
     }
-    logTotalsEdgeTrace(trace);
+    logTotalsEdgeTrace(trace, {
+      anthropicOutcome: "http-error",
+      httpStatus: res.status,
+      errorSnippet: err.slice(0, 300),
+      gamesRequested: games.length,
+      parsedItems: 0,
+    });
     return results;
   }
-
-  const data = (await res.json()) as {
     content?: Array<{ type: string; text?: string }>;
     stop_reason?: string;
   };
@@ -180,10 +212,12 @@ ${games
   const text = data.content?.find((c) => c.type === "text")?.text ?? "[]";
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   let parsed: AiResponseItem[] = [];
+  let parseFailed = false;
 
   try {
     parsed = JSON.parse(jsonMatch?.[0] ?? "[]") as AiResponseItem[];
   } catch {
+    parseFailed = true;
     console.error("Failed to parse Anthropic JSON:", text.slice(0, 500));
   }
 
@@ -227,7 +261,17 @@ ${games
     }
   }
 
-  logTotalsEdgeTrace(trace);
+  logTotalsEdgeTrace(trace, {
+    anthropicOutcome: parseFailed
+      ? "json-parse-error"
+      : parsed.length === 0
+        ? "empty-response"
+        : "ok",
+    gamesRequested: games.length,
+    parsedItems: parsed.length,
+    responseChars: text.length,
+    stopReason: data.stop_reason,
+  });
   return results;
 }
 

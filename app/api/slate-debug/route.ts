@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getLastTotalsEdgeTrace } from "@/lib/analysis";
+import { getLastTotalsEdgeTrace, getLastTotalsEdgeTraceMeta } from "@/lib/analysis";
 import { formatPacificTime, getTodayInPacific, isAfter8amPacific } from "@/lib/date";
 import { getTodaysGamesWithAnalysis } from "@/lib/games";
 import { isRecordsPaused } from "@/lib/persistence/reset";
@@ -52,6 +52,7 @@ export async function GET() {
       lockedGamePicks: result.games.filter((g) => g.picksAvailable).length,
       totals: result.totals,
       totalsEdgeTrace: getLastTotalsEdgeTrace(),
+      totalsEdgeTraceMeta: getLastTotalsEdgeTraceMeta(),
       gameTotalsEdges: result.games.map((g) => ({
         gamePk: g.gamePk,
         away: g.away,
