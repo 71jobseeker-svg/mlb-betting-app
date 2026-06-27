@@ -1,3 +1,9 @@
+import {
+  calculateTotalsEdge,
+  confidenceToScore,
+  MIN_BEST_BET_CONFIDENCE,
+  MIN_BEST_BET_SCORE,
+} from "@/lib/betting-edge";
 import type { BestBet } from "@/lib/best-bets";
 import type { EnrichedGame } from "@/lib/games";
 import {
@@ -7,6 +13,8 @@ import {
 } from "@/lib/date";
 import { formatAmericanOdds } from "@/lib/odds";
 import type { LockedGamePick } from "@/lib/persistence/types";
+
+export { MIN_BEST_BET_CONFIDENCE, MIN_BEST_BET_SCORE };
 
 export const MIN_TOTALS_EDGE = 7;
 
@@ -43,20 +51,26 @@ function resolveTotalsSide(
   return null;
 }
 
-/** AI totals edge for the resolved side — same 0–10 scale as moneylineStatEdge. */
+/** EV-based O/U confidence for the resolved side (0–10, floored at MIN_BEST_BET_CONFIDENCE). */
 export function resolveTotalCandidateEdge(
   game: EnrichedGame,
-  side: { pick: "over" | "under" }
+  side: { pick: "over" | "under"; betOdds: number }
 ): number {
   if (game.totalsPick != null && game.totalsPick !== side.pick) {
     return 0;
   }
-  return game.totalsStatEdge;
+
+  return calculateTotalsEdge(
+    side.betOdds,
+    game.totalsStatEdge,
+    game.totalsPick,
+    side.pick
+  );
 }
 
-/** Match ML best-bet scoring: non-zero floor so score never reads as 0. */
+/** Raw decimal score aligned with displayed X/10 confidence. */
 export function totalCandidateScore(edge: number): number {
-  return Math.max(edge, 1) / 10;
+  return confidenceToScore(edge);
 }
 
 function compareTotalCandidates(
@@ -84,10 +98,8 @@ export function collectTotalCandidates(
     if (game.totalsPick != null && game.totalsPick !== side.pick) continue;
 
     const edge = resolveTotalCandidateEdge(game, side);
+    if (edge <= 0) continue;
     if (options.minEdge !== null && edge < options.minEdge) continue;
-    if (options.minEdge === null && options.requireTotalsPick && edge <= 0) {
-      continue;
-    }
 
     const betLabel = `${side.pick === "over" ? "Over" : "Under"} ${game.totalPoint}`;
 
@@ -346,11 +358,14 @@ export function isLockedBestBetsValid(bets: BestBet[]): boolean {
       ) {
         return false;
       }
-      if (bet.totalsStatEdge <= 0) return false;
+      if (bet.totalsStatEdge < MIN_BEST_BET_CONFIDENCE) return false;
     }
 
-    if (bet.betType === "moneyline" && bet.statScore <= 0) return false;
-    if (bet.betType === "total" && bet.statScore <= 0) return false;
+    if (bet.betType === "moneyline") {
+      if (bet.moneylineStatEdge < MIN_BEST_BET_CONFIDENCE) return false;
+    }
+
+    if (bet.statScore < MIN_BEST_BET_SCORE) return false;
   }
 
   return true;

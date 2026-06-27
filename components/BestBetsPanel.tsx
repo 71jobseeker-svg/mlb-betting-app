@@ -24,6 +24,10 @@ function resolveBetScores(
   };
 }
 
+function bestBetDisplayConfidence(bet: BestBet): number {
+  return bet.betType === "total" ? bet.totalsStatEdge : bet.moneylineStatEdge;
+}
+
 function BestBetCard({
   bet,
   gamesByPk,
@@ -34,6 +38,8 @@ function BestBetCard({
   const { awayScore, homeScore, isFinal } = resolveBetScores(bet, gamesByPk);
   const hasFinalScore =
     isFinal && awayScore !== null && homeScore !== null;
+  const confidence = bestBetDisplayConfidence(bet);
+  const displayScore = Math.round((confidence / 10) * 100) / 100;
 
   return (
     <li
@@ -86,10 +92,10 @@ function BestBetCard({
       </p>
       <p className="mt-1 text-xs font-bold uppercase tracking-wider text-[#ffc107]">
         {bet.betType === "total"
-          ? `${bet.totalsStatEdge}/10 edge`
-          : `${bet.moneylineStatEdge}/10 ML edge`}
+          ? `${confidence}/10 edge`
+          : `${confidence}/10 ML edge`}
         {" · "}
-        score {Math.round(bet.statScore * 100) / 100}
+        score {displayScore}
       </p>
       <p className="mt-3 text-xs leading-relaxed text-[#a8c4ae]">{bet.statReason}</p>
     </li>

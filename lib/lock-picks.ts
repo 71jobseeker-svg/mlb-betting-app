@@ -1,11 +1,16 @@
 import "server-only";
 
-import { buildTotalBestBet } from "@/lib/best-bets";
+import {
+  buildTotalBestBet,
+  buildUnderdogBestBet,
+  pickBestUnderdogExcluding,
+} from "@/lib/best-bets";
 import type { BestBet } from "@/lib/best-bets";
 import {
   generateBettingRecommendations,
   type GameForAnalysis,
 } from "@/lib/analysis";
+import { parseAiPick } from "@/lib/picks";
 import {
   canGenerateAndLockPicks,
   gameHasMoneylineOdds,
@@ -18,7 +23,10 @@ import {
 import type { EnrichedGame } from "@/lib/games";
 import type { LockedGamePick } from "@/lib/persistence/types";
 import { bestBetsKey, recordKey } from "@/lib/persistence/keys";
-import { clearBestBetTotalRecord } from "@/lib/persistence/records-logic";
+import {
+  clearBestBetMoneylineRecord,
+  clearBestBetTotalRecord,
+} from "@/lib/persistence/records-logic";
 import {
   loadLockedBestBets,
   loadLockedPicks,
@@ -157,8 +165,8 @@ function gameToAnalysisShell(game: EnrichedGame): GameForAnalysis {
   };
 }
 
-/** Fresh AI totals fields for best-bet selection (ignores stale per-game lock totals). */
-async function overlayFreshTotalsAnalysis(
+/** Fresh AI analysis for best-bet selection (ignores stale per-game lock fields). */
+async function overlayFreshAnalysis(
   games: EnrichedGame[]
 ): Promise<EnrichedGame[]> {
   const shells = games
@@ -173,8 +181,21 @@ async function overlayFreshTotalsAnalysis(
     const analysis = recommendations.get(game.gamePk);
     if (!analysis) return game;
 
+    const pick = parseAiPick({
+      away: game.away,
+      home: game.home,
+      awayMoneyline: game.awayMoneyline,
+      homeMoneyline: game.homeMoneyline,
+      recommendation: analysis.moneylineRecommendation,
+    });
+
     return {
       ...game,
+      recommendation: analysis.moneylineRecommendation,
+      moneylineStatEdge: analysis.moneylineStatEdge,
+      pickTeam: pick.pickTeam,
+      pickSide: pick.pickSide,
+      pickOdds: pick.pickOdds,
       totalsPick: analysis.totalsPick,
       totalsStatEdge: analysis.totalsStatEdge,
       totalsRecommendation: analysis.totalsRecommendation,
@@ -205,9 +226,9 @@ export async function refreshLockedTotalBestBet(
     return null;
   }
 
-  const gamesForTotals = await overlayFreshTotalsAnalysis(games);
+  const gamesForSelection = await overlayFreshAnalysis(games);
   const excludeGamePks = new Set([favorite.gamePk, underdog.gamePk]);
-  const candidate = pickBestTotalBetExcluding(gamesForTotals, excludeGamePks);
+  const candidate = pickBestTotalBetExcluding(gamesForSelection, excludeGamePks);
 
   if (!candidate) {
     console.warn("[refreshTotal] No O/U candidate found on slate");
@@ -236,6 +257,71 @@ export async function refreshLockedTotalBestBet(
 
   console.warn(
     `[refreshTotal] Updated ${bestBetsKey(slateDate)} — O/U: ${newTotal.betLabel} @ ${newTotal.betOdds} (${newTotal.totalsStatEdge}/10 edge, score ${newTotal.statScore})`
+  );
+
+  return refreshed;
+}
+
+/**
+ * Replace only the locked underdog best bet. O/U and ML favorite locks are kept as-is.
+ * Clears the prior underdog's W-L record entry for today when the game changes.
+ */
+export async function refreshLockedUnderdogBestBet(
+  slateDate: string,
+  games: EnrichedGame[]
+): Promise<BestBet[] | null> {
+  const existing = await loadLockedBestBets(slateDate);
+  if (!existing?.length) {
+    console.warn(`[refreshUnderdog] No locked best bets for ${slateDate}`);
+    return null;
+  }
+
+  const favorite = existing.find((b) => b.betCategory === "favorite");
+  const total = existing.find((b) => b.betCategory === "total");
+  const oldUnderdog = existing.find((b) => b.betCategory === "underdog");
+
+  if (!favorite || !total) {
+    console.warn(
+      "[refreshUnderdog] Missing O/U or favorite locks — cannot refresh underdog only"
+    );
+    return null;
+  }
+
+  const gamesForSelection = await overlayFreshAnalysis(games);
+  const excludeGamePks = new Set([favorite.gamePk, total.gamePk]);
+  const candidate = pickBestUnderdogExcluding(gamesForSelection, excludeGamePks);
+
+  if (!candidate) {
+    console.warn("[refreshUnderdog] No underdog candidate found on slate");
+    return null;
+  }
+
+  const lockedAt = new Date().toISOString();
+  const newUnderdog = { ...buildUnderdogBestBet(candidate, 2), lockedAt };
+
+  const refreshed: BestBet[] = [
+    { ...total, rank: 1 },
+    newUnderdog,
+    { ...favorite, rank: 3 },
+  ];
+
+  if (oldUnderdog && oldUnderdog.gamePk !== newUnderdog.gamePk) {
+    let records = await loadRecordsStore();
+    records = clearBestBetMoneylineRecord(
+      records,
+      slateDate,
+      oldUnderdog.gamePk
+    );
+    await saveRecordsStore(records);
+    console.warn(
+      `[refreshUnderdog] Cleared best-bet record for underdog gamePk ${oldUnderdog.gamePk}`
+    );
+  }
+
+  await saveLockedBestBets(slateDate, refreshed);
+
+  console.warn(
+    `[refreshUnderdog] Updated ${bestBetsKey(slateDate)} — DOG: ${newUnderdog.betLabel} @ ${newUnderdog.betOdds} (${newUnderdog.moneylineStatEdge}/10 EV confidence, score ${newUnderdog.statScore})`
   );
 
   return refreshed;

@@ -1,4 +1,5 @@
 import type { EnrichedGame } from "@/lib/games";
+import { calculateEdge, confidenceToScore } from "@/lib/betting-edge";
 import {
   EXPECTED_BEST_BETS_COUNT,
   getTotalCandidatePool,
@@ -34,6 +35,8 @@ type MoneylineCandidate = {
   score: number;
 };
 
+export type { MoneylineCandidate };
+
 function formatLine(n: number): string {
   return n > 0 ? `+${n}` : `${n}`;
 }
@@ -65,6 +68,20 @@ export function buildTotalBestBet(
   };
 }
 
+export function buildUnderdogBestBet(
+  candidate: MoneylineCandidate,
+  rank: number
+): BestBet {
+  return moneylineCandidateToBestBet(candidate, "underdog", rank);
+}
+
+export function buildFavoriteBestBet(
+  candidate: MoneylineCandidate,
+  rank: number
+): BestBet {
+  return moneylineCandidateToBestBet(candidate, "favorite", rank);
+}
+
 function totalCandidateToBestBet(
   candidate: TotalBetCandidate,
   rank: number
@@ -90,6 +107,7 @@ function moneylineCandidateToBestBet(
     betOdds: candidate.betOdds,
     statReason: candidate.reason,
     statScore: candidate.score,
+    moneylineStatEdge: candidate.edge,
     pickTeam: candidate.betLabel,
     pickSide: side,
     pickOdds: candidate.betOdds,
@@ -117,17 +135,23 @@ function collectFavoriteCandidates(games: EnrichedGame[]): MoneylineCandidate[] 
     if (favOdds >= 0) continue;
 
     const aiOnFavorite = pickSide === favSide;
-    const edge = aiOnFavorite ? moneylineStatEdge : 0;
+    const edge = calculateEdge(
+      favOdds,
+      awayIsFavorite ? homeMoneyline : awayMoneyline,
+      pickSide,
+      favSide,
+      moneylineStatEdge
+    );
 
     bucket.push({
       game,
       betLabel: favTeam,
       betOdds: favOdds,
       edge,
-      score: Math.max(edge, 1) / 10,
+      score: confidenceToScore(edge),
       reason: aiOnFavorite
-        ? `AI ML favorite: ${favTeam} ${formatLine(favOdds)} — ${edge}/10 edge.`
-        : `Market favorite: ${favTeam} ${formatLine(favOdds)} — ${edge}/10 AI edge on this side.`,
+        ? `AI ML favorite: ${favTeam} ${formatLine(favOdds)} — ${edge}/10 EV confidence.`
+        : `Market favorite ${favTeam} ${formatLine(favOdds)} — ${edge}/10 EV confidence from model vs line.`,
     });
   }
 
@@ -155,17 +179,23 @@ function collectUnderdogCandidates(games: EnrichedGame[]): MoneylineCandidate[] 
     if (dogOdds <= 0) continue;
 
     const aiOnUnderdog = pickSide === dogSide;
-    const edge = aiOnUnderdog ? moneylineStatEdge : 0;
+    const edge = calculateEdge(
+      dogOdds,
+      awayIsUnderdog ? homeMoneyline : awayMoneyline,
+      pickSide,
+      dogSide,
+      moneylineStatEdge
+    );
 
     bucket.push({
       game,
       betLabel: dogTeam,
       betOdds: dogOdds,
       edge,
-      score: Math.max(edge, 1) / 10,
+      score: confidenceToScore(edge),
       reason: aiOnUnderdog
-        ? `AI plus-money dog: ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 edge.`
-        : `Market underdog: ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 AI edge on this side.`,
+        ? `AI plus-money dog: ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 EV confidence.`
+        : `Plus-money dog ${dogTeam} ${formatLine(dogOdds)} — ${edge}/10 EV confidence from model vs line.`,
     });
   }
 
@@ -183,6 +213,28 @@ function pickBestFromBucketExcluding<
   T extends { edge: number; game: EnrichedGame },
 >(bucket: T[], excludeGamePks: Set<number>): T | undefined {
   return bucket.find((candidate) => !excludeGamePks.has(candidate.game.gamePk));
+}
+
+/** Best plus-money dog from a different game than the excluded set. */
+export function pickBestUnderdogExcluding(
+  games: EnrichedGame[],
+  excludeGamePks: Set<number>
+): MoneylineCandidate | undefined {
+  return pickBestFromBucketExcluding(
+    collectUnderdogCandidates(games),
+    excludeGamePks
+  );
+}
+
+/** Best ML favorite from a different game than the excluded set. */
+export function pickBestFavoriteExcluding(
+  games: EnrichedGame[],
+  excludeGamePks: Set<number>
+): MoneylineCandidate | undefined {
+  return pickBestFromBucketExcluding(
+    collectFavoriteCandidates(games),
+    excludeGamePks
+  );
 }
 
 function deduplicateBestBetCandidates(

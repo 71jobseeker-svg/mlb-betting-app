@@ -27,6 +27,20 @@ export function clearBestBetTotalRecord(
   return store;
 }
 
+export function clearBestBetMoneylineRecord(
+  store: RecordsStore,
+  slateDate: string,
+  gamePk: number
+): RecordsStore {
+  const day = store.days[slateDate];
+  if (!day) return store;
+
+  const key = bestBetRecordKey(gamePk, "moneyline");
+  delete day.pending[key];
+  delete day.settled[key];
+  return store;
+}
+
 export function emptyRecordsStore(): RecordsStore {
   return { days: {} };
 }
